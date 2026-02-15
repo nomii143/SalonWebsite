@@ -1,0 +1,168 @@
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Source+Sans+3:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 28 20% 8%;
+    --foreground: 38 25% 92%;
+
+    --card: 28 18% 12%;
+    --card-foreground: 38 25% 92%;
+
+    --popover: 28 18% 13%;
+    --popover-foreground: 38 25% 92%;
+
+    --primary: 38 70% 52%;
+    --primary-foreground: 28 20% 10%;
+
+    --secondary: 28 12% 18%;
+    --secondary-foreground: 38 18% 80%;
+
+    --muted: 28 10% 18%;
+    --muted-foreground: 32 10% 55%;
+
+    --accent: 18 55% 46%;
+    --accent-foreground: 38 25% 94%;
+
+    --destructive: 0 65% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 28 12% 22%;
+    --input: 28 12% 22%;
+    --ring: 38 70% 55%;
+
+    --radius: 0.75rem;
+
+    --sidebar-background: 28 22% 6%;
+    --sidebar-foreground: 36 18% 78%;
+    --sidebar-primary: 38 70% 52%;
+    --sidebar-primary-foreground: 28 20% 10%;
+    --sidebar-accent: 28 14% 14%;
+    --sidebar-accent-foreground: 38 25% 92%;
+    --sidebar-border: 28 12% 18%;
+    --sidebar-ring: 38 70% 52%;
+
+    --success: 145 55% 40%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 85% 52%;
+    --warning-foreground: 28 20% 10%;
+
+    --chart-1: 38 70% 52%;
+    --chart-2: 18 55% 46%;
+    --chart-3: 145 55% 40%;
+    --chart-4: 200 50% 45%;
+    --chart-5: 300 35% 50%;
+
+    --font-display: 'Cormorant Garamond', serif;
+    --font-body: 'Source Sans 3', sans-serif;
+
+    --gradient-gold: linear-gradient(135deg, hsl(38 70% 52%), hsl(30 75% 48%));
+    --gradient-card: linear-gradient(145deg, hsl(28 18% 13%), hsl(28 18% 9%));
+    --shadow-gold: 0 6px 26px -10px hsl(38 70% 52% / 0.35);
+    --shadow-card: 0 8px 28px -12px hsl(0 0% 0% / 0.5);
+    --surface-pattern: radial-gradient(circle at 20% 20%, hsl(28 20% 16% / 0.35), transparent 45%),
+      radial-gradient(circle at 80% 0%, hsl(38 50% 30% / 0.22), transparent 45%),
+      radial-gradient(circle at 10% 90%, hsl(18 50% 28% / 0.18), transparent 40%);
+  }
+
+  :root.light {
+    --background: 36 24% 96%;
+    --foreground: 24 18% 16%;
+
+    --card: 36 30% 98%;
+    --card-foreground: 24 18% 16%;
+
+    --popover: 36 30% 98%;
+    --popover-foreground: 24 18% 16%;
+
+    --primary: 38 70% 46%;
+    --primary-foreground: 36 24% 96%;
+
+    --secondary: 36 18% 90%;
+    --secondary-foreground: 24 18% 18%;
+
+    --muted: 36 18% 92%;
+    --muted-foreground: 24 10% 45%;
+
+    --accent: 18 55% 44%;
+    --accent-foreground: 36 24% 96%;
+
+    --destructive: 0 65% 45%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 30 15% 82%;
+    --input: 30 15% 82%;
+    --ring: 38 70% 50%;
+
+    --sidebar-background: 36 28% 94%;
+    --sidebar-foreground: 24 18% 20%;
+    --sidebar-primary: 38 70% 46%;
+    --sidebar-primary-foreground: 36 24% 96%;
+    --sidebar-accent: 36 18% 90%;
+    --sidebar-accent-foreground: 24 18% 20%;
+    --sidebar-border: 30 15% 86%;
+    --sidebar-ring: 38 70% 46%;
+
+    --success: 145 50% 36%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 80% 46%;
+    --warning-foreground: 24 18% 16%;
+
+    --chart-1: 38 70% 46%;
+    --chart-2: 18 55% 44%;
+    --chart-3: 145 50% 36%;
+    --chart-4: 200 50% 42%;
+    --chart-5: 300 35% 48%;
+
+    --gradient-gold: linear-gradient(135deg, hsl(38 70% 46%), hsl(30 70% 42%));
+    --gradient-card: linear-gradient(145deg, hsl(36 30% 98%), hsl(36 20% 94%));
+    --shadow-gold: 0 10px 24px -12px hsl(38 70% 46% / 0.35);
+    --shadow-card: 0 12px 26px -16px hsl(24 18% 16% / 0.2);
+    --surface-pattern: radial-gradient(circle at 10% 20%, hsl(38 40% 85% / 0.6), transparent 45%),
+      radial-gradient(circle at 85% 10%, hsl(28 40% 80% / 0.45), transparent 45%),
+      radial-gradient(circle at 0% 100%, hsl(18 35% 78% / 0.45), transparent 40%);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-body);
+    background-image: var(--surface-pattern);
+    background-attachment: fixed;
+  }
+
+  h1, h2, h3, h4 {
+    font-family: var(--font-display);
+  }
+
+  input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+  }
+
+  :root.light input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(0);
+  }
+}
+
+@layer utilities {
+  .gradient-gold {
+    background: var(--gradient-gold);
+  }
+  .gradient-card {
+    background: var(--gradient-card);
+  }
+  .shadow-gold {
+    box-shadow: var(--shadow-gold);
+  }
+  .shadow-card {
+    box-shadow: var(--shadow-card);
+  }
+}
