@@ -337,7 +337,7 @@ export default function Dashboard() {
         <div className="h-10 w-10 rounded-full bg-emerald-100 flex items-center justify-center mb-2">
           <Package className="h-5 w-5 text-emerald-600" />
         </div>
-        <p className="text-sm text-muted-foreground font-medium italic">Sab set hai! 😎</p>
+        <p className="text-sm text-muted-foreground font-medium italic">All Okay</p>
       </div>
     )}
   </div>
