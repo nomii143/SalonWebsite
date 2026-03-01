@@ -332,22 +332,19 @@ export default function PaySalaryPage() {
     return currentRemaining + previousDue;
   };
 
-  const getAdvanceInputTotal = (staffId: string, paymentDate: Date, months: number) => {
-    const outstanding = getTotalOutstandingForDate(staffId, paymentDate);
-    const baseAdvance = getAdvanceTotalWithPreviousDue(staffId, paymentDate, months);
-    return outstanding + baseAdvance;
-  };
+  // Removed - use getAdvanceTotalWithPreviousDue directly instead
+  // getAdvanceTotalWithPreviousDue already includes current + previous due + future months
 
   const handleNumberOfMonthsChange = (value: string) => {
     const numMonths = parseInt(value);
     setNumberOfMonths(numMonths);
     
-    // For Advance: Auto-fill amount with total (outstanding + extra advance)
+    // For Advance: Auto-fill amount with total outstanding + future months
     if (payType === "advance" && selectedStaffId) {
       const selectedStaff = staff.find(s => s.id === selectedStaffId);
       if (selectedStaff?.monthlySalary) {
         const paymentDate = new Date(date);
-        const suggestedAmount = getAdvanceInputTotal(selectedStaffId, paymentDate, numMonths);
+        const suggestedAmount = getAdvanceTotalWithPreviousDue(selectedStaffId, paymentDate, numMonths);
         setAmount(String(suggestedAmount));
       }
     }
@@ -375,12 +372,12 @@ export default function PaySalaryPage() {
         setAmount(String(currentRemaining + previousDue));
       }
     } else if (type === "advance" && selectedStaffId) {
-      // Advance: Reset to 1 month, auto-fill with total (outstanding + extra advance)
+      // Advance: Reset to 1 month, auto-fill with total outstanding + future months
       setNumberOfMonths(1);
       const selectedStaff = staff.find(s => s.id === selectedStaffId);
       if (selectedStaff?.monthlySalary) {
         const paymentDate = new Date(date);
-        const suggestedAmount = getAdvanceInputTotal(selectedStaffId, paymentDate, 1);
+        const suggestedAmount = getAdvanceTotalWithPreviousDue(selectedStaffId, paymentDate, 1);
         setAmount(String(suggestedAmount));
       }
     }
@@ -404,8 +401,8 @@ export default function PaySalaryPage() {
       const previousDue = getPreviousDueBalance(staffId, paymentDate);
       setAmount(String(currentRemaining + previousDue));
     } else if (payType === "advance" && selectedStaff?.monthlySalary) {
-      // If Advance is already selected, auto-fill with total (outstanding + extra advance)
-      const suggestedAmount = getAdvanceInputTotal(staffId, paymentDate, numberOfMonths);
+      // If Advance is already selected, auto-fill with total outstanding + future months
+      const suggestedAmount = getAdvanceTotalWithPreviousDue(staffId, paymentDate, numberOfMonths);
       setAmount(String(suggestedAmount));
     }
   };
@@ -462,7 +459,7 @@ export default function PaySalaryPage() {
         setAmount(String(currentRemaining + previousDue));
       }
     } else if (payType === "advance" && selectedStaffId) {
-      const suggestedAmount = getAdvanceInputTotal(selectedStaffId, paymentDate, numberOfMonths);
+      const suggestedAmount = getAdvanceTotalWithPreviousDue(selectedStaffId, paymentDate, numberOfMonths);
       setAmount(String(suggestedAmount));
     }
   };
@@ -545,7 +542,7 @@ export default function PaySalaryPage() {
         return toast.error(`An advance has already been paid for ${monthName}. Only one advance is allowed per month.`);
       }
       
-      const maxAdvanceAllowed = getAdvanceInputTotal(selectedStaffId, paymentDate, numberOfMonths);
+      const maxAdvanceAllowed = getAdvanceTotalWithPreviousDue(selectedStaffId, paymentDate, numberOfMonths);
       if (paymentAmount > maxAdvanceAllowed) {
         setIsProcessing(false);
         return toast.error(
@@ -1080,7 +1077,7 @@ export default function PaySalaryPage() {
                 />
                 {payType === "advance" && (
                   <p className="text-xs text-blue-600 font-medium">
-                    Suggested (Outstanding + Advance): Rs {getAdvanceInputTotal(selectedStaffId, new Date(date), numberOfMonths).toLocaleString()} for {numberOfMonths} month{numberOfMonths > 1 ? 's' : ''}. You can change this amount.
+                    Suggested (Outstanding + Advance): Rs {getAdvanceTotalWithPreviousDue(selectedStaffId, new Date(date), numberOfMonths).toLocaleString()} for {numberOfMonths} month{numberOfMonths > 1 ? 's' : ''}. You can change this amount.
                   </p>
                 )}
                 {payType === "advance" && (() => {
@@ -1113,7 +1110,7 @@ export default function PaySalaryPage() {
                 const canPayFull = payType === "full" && totalOutstanding > 0;
                 
                 // For Advance: Can pay if amount is valid and doesn't exceed max
-                const maxAdvance = getAdvanceInputTotal(selectedStaffId, new Date(date), numberOfMonths);
+                const maxAdvance = getAdvanceTotalWithPreviousDue(selectedStaffId, new Date(date), numberOfMonths);
                 const advanceAmountValid = payType === "advance" && 
                   Number(amount) > 0 && 
                   Number(amount) <= maxAdvance;
