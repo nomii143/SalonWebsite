@@ -8,9 +8,14 @@ import { AppLayout } from "@/components/AppLayout";
 import Dashboard from "./pages/Dashboard";
 import Inventory from "./pages/Inventory";
 import AddStock from "./pages/AddStock";
-import Sales from "./pages/Sales";
+import Stockout from "./pages/Stockout";
 import Expenses from "./pages/Expenses";
+import ManualSales from "./pages/Sales";
+import StaffSalaries from "./pages/StaffSalaries";
+import PaySalary from "./pages/PaySalary";
+import AddStaff from "./pages/AddStaff";
 import Reports from "./pages/Reports";
+import VendorPayments from "./pages/Vender";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -27,8 +32,13 @@ const App = () => (
               <Route path="/" element={<Dashboard />} />
               <Route path="/inventory" element={<Inventory />} />
               <Route path="/add-stock" element={<AddStock />} />
-              <Route path="/sales" element={<Sales />} />
+              <Route path="/stockout" element={<Stockout />} />
               <Route path="/expenses" element={<Expenses />} />
+              <Route path="/sales" element={<ManualSales />} />
+              <Route path="/vendors" element={<VendorPayments />} />
+              <Route path="/staffsalaries" element={<StaffSalaries />} />
+              <Route path="/pay-salary" element={<PaySalary />} />
+              <Route path="/add-staff" element={<AddStaff />} />
               <Route path="/reports" element={<Reports />} />
               <Route path="*" element={<NotFound />} />
             </Routes>

@@ -9,9 +9,9 @@ export function AppLayout({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const savedTheme = window.localStorage.getItem("theme");
-    const prefersLight = window.matchMedia?.("(prefers-color-scheme: light)").matches;
-    const isDark = savedTheme ? savedTheme === "dark" : !prefersLight;
+    const isDark = savedTheme ? savedTheme === "dark" : false;
     const root = document.documentElement;
+    if (!savedTheme) window.localStorage.setItem("theme", "light");
     root.classList.toggle("light", !isDark);
   }, []);
 
@@ -23,7 +23,10 @@ export function AppLayout({ children }: { children: ReactNode }) {
       <div className="flex-1 flex flex-col min-h-screen">
         {/* Mobile header */}
         <header className="md:hidden flex items-center justify-between px-4 py-3 border-b border-border">
-          <h1 className="font-display text-lg font-bold text-primary">Geroos Salon</h1>
+          <div className="flex items-center gap-2">
+            <img src="/assets/geero`s logo.jpeg" alt="Geeros Salon" className="w-6 h-6" />
+            <h1 className="font-display text-lg font-bold text-primary">Geeros Salon</h1>
+          </div>
           <button onClick={() => setMobileOpen(true)} className="p-2 rounded-lg hover:bg-muted">
             <Menu className="w-5 h-5" />
           </button>

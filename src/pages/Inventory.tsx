@@ -17,7 +17,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Package, MoreVertical, Search } from "lucide-react";
+import { Package, MoreVertical, Search, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
 export default function Inventory() {
@@ -34,10 +34,19 @@ export default function Inventory() {
     entryDate: "",
   });
 
-  const filteredItems = useMemo(() => {
-    return items.filter((item) =>
+  // 1. FILTER & SORT: Newest items on top
+  const displayItems = useMemo(() => {
+    const filtered = items.filter((item) =>
       (item.name || "").toLowerCase().includes(searchQuery.toLowerCase())
     );
+
+    // Sort by entryDate descending. If dates are equal, sort by ID (assuming higher ID is newer)
+    return filtered.sort((a, b) => {
+      const dateA = new Date(a.entryDate).getTime();
+      const dateB = new Date(b.entryDate).getTime();
+      if (dateB !== dateA) return dateB - dateA;
+      return b.id.localeCompare(a.id); // Fallback for items added on same day
+    });
   }, [items, searchQuery]);
 
   const openEdit = (item: typeof items[number]) => {
@@ -61,7 +70,6 @@ export default function Inventory() {
         name: editForm.name,
         quantity: Number(editForm.quantity),
         costPrice: Number(editForm.costPrice),
-        // Removed sellingPrice from the update logic
         entryDate: editForm.entryDate,
       });
       setEditingId(null);
@@ -87,6 +95,17 @@ export default function Inventory() {
     }
   };
 
+  // Helper to check if item was added today
+ const isNewItem = (dateStr: string) => {
+  const itemDate = new Date(dateStr).getTime();
+  const now = new Date().getTime();
+  
+  const twentyFourHours = 86400000;
+  
+  const diff = now - itemDate;
+
+  return diff >= 0 && diff <= twentyFourHours;
+};
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -110,29 +129,34 @@ export default function Inventory() {
       <div className="rounded-xl bg-card border border-border shadow-card overflow-hidden">
         <Table>
           <TableHeader>
-            <TableRow className="border-border hover:bg-transparent">
+            <TableRow className="border-border hover:bg-transparent bg-muted/30">
               <TableHead>Item Name</TableHead>
               <TableHead>Quantity</TableHead>
               <TableHead>Cost Price</TableHead>
-              {/* Selling Price Head Removed */}
               <TableHead>Entry Date</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {[...filteredItems].reverse().map((item) => (
-              <TableRow key={item.id} className="border-border">
-                <TableCell className="font-medium flex items-center gap-2 text-foreground">
-                  <Package className="w-4 h-4 text-primary" />
-                  {item.name}
+            {displayItems.map((item) => (
+              <TableRow key={item.id} className="border-border group">
+                <TableCell className="font-medium text-foreground">
+                  <div className="flex items-center gap-2">
+                    <Package className="w-4 h-4 text-primary" />
+                    <span>{item.name}</span>
+                    {isNewItem(item.entryDate) && (
+                       <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-[10px] h-5 px-1.5 animate-pulse">
+                         <Sparkles className="w-3 h-3 mr-1" /> NEW
+                       </Badge>
+                    )}
+                  </div>
                 </TableCell>
                 <TableCell>{item.quantity}</TableCell>
                 <TableCell>Rs {item.costPrice}</TableCell>
-                {/* Selling Price Cell Removed */}
                 <TableCell className="text-muted-foreground">{item.entryDate}</TableCell>
                 <TableCell>
-                  {item.quantity < 15 ? (
+                  {item.quantity < 10 ? (
                     <Badge variant="destructive" className="text-xs">Low Stock</Badge>
                   ) : (
                     <Badge className="bg-success/20 text-success border-0 text-xs">In Stock</Badge>
@@ -158,7 +182,7 @@ export default function Inventory() {
                 </TableCell>
               </TableRow>
             ))}
-            {filteredItems.length === 0 && (
+            {displayItems.length === 0 && (
               <TableRow>
                 <TableCell colSpan={6} className="text-center py-10 text-muted-foreground italic">
                   No items found matching "{searchQuery}"
@@ -220,7 +244,6 @@ export default function Inventory() {
                 <Input type="date" value={editForm.entryDate} onChange={(e) => setEditForm({ ...editForm, entryDate: e.target.value })} />
               </div>
             </div>
-            {/* Selling Price Input Grid Removed, Cost Price centered or left as is */}
             <div className="space-y-2">
               <Label>Cost Price *</Label>
               <Input type="number" min={0} step="0.01" value={editForm.costPrice} onChange={(e) => setEditForm({ ...editForm, costPrice: e.target.value })} />

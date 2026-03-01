@@ -20,6 +20,11 @@ interface ElectronExpenseInput {
 	staff_pic_url?: string | null;
 	description?: string | null;
 	date?: string;
+	source?: string | null;
+}
+
+interface ElectronExpenseUpdate extends Partial<ElectronExpenseInput> {
+	id: number;
 }
 
 interface ElectronSaleInput {
@@ -29,7 +34,27 @@ interface ElectronSaleInput {
 	quantity: number;
 	unit_price?: number;
 	total_amount: number;
+	cash_amount?: number;
+	card_amount?: number;
 	date?: string;
+}
+
+interface ElectronStockoutInput {
+	staff_name?: string;
+	item_name: string;
+	item_id?: number | null;
+	quantity: number;
+	unit_price?: number;
+	total_amount: number;
+	date?: string;
+}
+
+interface ElectronSaleUpdate extends Partial<ElectronSaleInput> {
+	id: number;
+}
+
+interface ElectronStockoutUpdate extends Partial<ElectronStockoutInput> {
+	id: number;
 }
 
 interface ElectronUserInput {
@@ -82,6 +107,19 @@ interface Window {
 		>;
 		deleteItem: (id: number) => Promise<{ deleted: boolean }>;
 		addExpense: (expense: ElectronExpenseInput) => Promise<{ id: number; date: string }>;
+		updateExpense: (expense: ElectronExpenseUpdate) => Promise<
+			| {
+					id: number;
+					category: string;
+					amount: number;
+					staff_name: string;
+					staff_pic_url: string | null;
+					description: string | null;
+					date: string;
+				}
+			| null
+		>;
+		deleteExpense: (id: number) => Promise<{ deleted: boolean }>;
 		getExpenses: () => Promise<
 			Array<{
 				id: number;
@@ -91,9 +129,26 @@ interface Window {
 				staff_pic_url: string | null;
 				description: string | null;
 				date: string;
+				source?: string | null;
 			}>
 		>;
 		recordSale: (sale: ElectronSaleInput) => Promise<{ id: number; date: string }>;
+		updateSale: (sale: ElectronSaleUpdate) => Promise<
+			| {
+					id: number;
+					buyer_name: string;
+					item_name: string;
+					item_id: number | null;
+					quantity: number;
+					unit_price: number;
+					total_amount: number;
+					cash_amount?: number;
+					card_amount?: number;
+					date: string;
+				}
+			| null
+		>;
+		deleteSale: (id: number) => Promise<{ deleted: boolean }>;
 		getSales: () => Promise<
 			Array<{
 				id: number;
@@ -101,20 +156,53 @@ interface Window {
 				item_name: string;
 				quantity: number;
 				total_amount: number;
+				cash_amount?: number;
+				card_amount?: number;
+				date: string;
+			}>
+		>;
+		addStockout: (stockout: ElectronStockoutInput) => Promise<{ id: number; date: string }>;
+		updateStockout: (stockout: ElectronStockoutUpdate) => Promise<
+			| {
+					id: number;
+					staff_name: string;
+					item_name: string;
+					item_id: number | null;
+					quantity: number;
+					unit_price: number;
+					total_amount: number;
+					date: string;
+				}
+			| null
+		>;
+		deleteStockout: (id: number) => Promise<{ deleted: boolean }>;
+		getStockouts: () => Promise<
+			Array<{
+				id: number;
+				staff_name: string;
+				item_name: string;
+				item_id: number | null;
+				quantity: number;
+				total_amount: number;
 				date: string;
 			}>
 		>;
 		getReportData: (filters: {
-			type: "Sales" | "Expenses" | "Inventory" | "All Items";
+			type: "Sales" | "Expenses" | "Vendor Payments" | "Inventory" | "All Items" | "Stock In" | "Stock Out";
 			range: "daily" | "weekly" | "monthly" | "custom";
 			startDate?: string | null;
 			endDate?: string | null;
+			category?: string | null;
 		}) => Promise<
 			Array<{
 				date: string;
 				item_name: string;
 				category: string;
 				amount: number;
+				cashAmount?: number;
+				cardAmount?: number;
+				quantity?: number;
+				unit_price?: number;
 			}>
 		>;
 		addUser: (user: ElectronUserInput) => Promise<{ id: number }>;

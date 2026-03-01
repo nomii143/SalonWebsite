@@ -14,17 +14,31 @@ export interface Sale {
   itemName: string;
   quantitySold: number;
   totalAmount: number;
+  cashAmount?: number;
+  cardAmount?: number;
+  paymentMethod?: string;
   saleDate: string;
+}
+
+export interface Stockout {
+  id: string;
+  staffName: string;
+  itemId: string;
+  itemName: string;
+  quantity: number;
+  totalAmount: number;
+  date: string;
 }
 
 export interface Expense {
   id: string;
-  category: "Food" | "Taxi" | "Maintenance" | "Utilities" | "Other";
+  category: string;
   amount: number;
   staffName: string;
   staffPicture: string;
   description: string;
   date: string;
+  source?: string;
 }
 
 export interface StaffUser {
@@ -32,8 +46,19 @@ export interface StaffUser {
   fullName: string;
   email: string;
   phone: string;
-  role: "Admin" | "Staff" | "Manager";
+  role: "Admin" | "Staff" | "Manager" | "Vendor";
   pictureUrl: string;
   joinDate: string;
+  monthlySalary?: number;
   source?: string;
+}
+
+export interface SalaryPayment {
+  id: string;
+  staffId: string;
+  staffName: string;
+  amount: number;
+  paymentType: "advance" | "full";
+  date: string;
+  numberOfMonths?: number;
 }

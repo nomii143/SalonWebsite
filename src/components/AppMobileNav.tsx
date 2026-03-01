@@ -7,11 +7,12 @@ import {
 const navItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Inventory", url: "/inventory", icon: Package },
-  { title: "Add Stock", url: "/add-stock", icon: PlusCircle },
-  { title: "Sales", url: "/sales", icon: ShoppingCart },
+  { title: "Stock In", url: "/add-stock", icon: PlusCircle },
+  { title: "Stock Out", url: "/stockout", icon: ShoppingCart },
+  { title: "Sales", url: "/sales", icon: PlusCircle },
+  { title: "Staff Salaries", url: "/staffsalaries", icon: Users },
   { title: "Expenses", url: "/expenses", icon: Receipt },
   { title: "Reports", url: "/reports", icon: FileText },
-  { title: "Staff", url: "/users", icon: Users },
 ];
 
 export function AppMobileNav({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -25,7 +26,7 @@ export function AppMobileNav({ open, onClose }: { open: boolean; onClose: () => 
         <div className="flex items-center justify-between px-6 py-4 border-b border-sidebar-border">
           <div className="flex items-center gap-2">
             <Scissors className="w-5 h-5 text-primary" />
-            <span className="font-display font-bold text-sidebar-accent-foreground">Geroos Salon</span>
+            <span className="font-display font-bold text-sidebar-accent-foreground">Geeros Salon</span>
           </div>
           <button onClick={onClose} className="p-1 rounded hover:bg-muted">
             <X className="w-4 h-4" />
