@@ -80,7 +80,7 @@ const Reports = () => {
       }
       doc.setFontSize(18);
       doc.setFont("helvetica", "bold");
-      doc.text("GEEROS SALON MANAGEMENT SYSTEM", 30, 20);
+      doc.text("GEEROZ SALON MANAGEMENT SYSTEM", 30, 20);
       doc.setFontSize(10);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(100);
@@ -375,7 +375,7 @@ const Reports = () => {
         renderTable(`${reportType} Report`, data, mode);
       }
 
-      doc.save(`Geeros_Report_${generatedDate}.pdf`);
+      doc.save(`Geeroz_Report_${generatedDate}.pdf`);
       toast.success("Report Generated Successfully!");
     } catch (error) {
       console.error(error);

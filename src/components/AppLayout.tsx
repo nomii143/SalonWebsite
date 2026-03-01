@@ -24,8 +24,8 @@ export function AppLayout({ children }: { children: ReactNode }) {
         {/* Mobile header */}
         <header className="md:hidden flex items-center justify-between px-4 py-3 border-b border-border">
           <div className="flex items-center gap-2">
-            <img src="/assets/geero`s logo.jpeg" alt="Geeros Salon" className="w-6 h-6" />
-            <h1 className="font-display text-lg font-bold text-primary">Geeros Salon</h1>
+            <img src="/assets/geero`s logo.jpeg" alt="Geeroz Salon" className="w-6 h-6" />
+            <h1 className="font-display text-lg font-bold text-primary">Geeroz Salon</h1>
           </div>
           <button onClick={() => setMobileOpen(true)} className="p-2 rounded-lg hover:bg-muted">
             <Menu className="w-5 h-5" />

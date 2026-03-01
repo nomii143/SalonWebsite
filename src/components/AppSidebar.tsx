@@ -62,7 +62,7 @@ export function AppSidebar() {
   <div className="flex items-center justify-center bg-white">
     <img 
       src={logo} 
-      alt="Geeros Salon" 
+      alt="Geeroz Salon" 
       /* Removed all filters and shadows so it blends 
          perfectly with the white background 
       */
@@ -72,7 +72,7 @@ export function AppSidebar() {
   
   <div className="flex flex-col">
     <h1 className="font-display text-xl font-extrabold text-slate-900 tracking-tight leading-none">
-      Geeros Salon
+      Geeroz Salon
     </h1>
     <div className="flex items-center gap-1.5 mt-1.5">
       <span className="h-[1px] w-3 bg-slate-300"></span>

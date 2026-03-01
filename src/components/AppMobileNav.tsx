@@ -26,7 +26,7 @@ export function AppMobileNav({ open, onClose }: { open: boolean; onClose: () => 
         <div className="flex items-center justify-between px-6 py-4 border-b border-sidebar-border">
           <div className="flex items-center gap-2">
             <Scissors className="w-5 h-5 text-primary" />
-            <span className="font-display font-bold text-sidebar-accent-foreground">Geeros Salon</span>
+            <span className="font-display font-bold text-sidebar-accent-foreground">Geeroz Salon</span>
           </div>
           <button onClick={onClose} className="p-1 rounded hover:bg-muted">
             <X className="w-4 h-4" />
