@@ -42,13 +42,19 @@ export default function Dashboard() {
   }, 0);
 
   // Include salary payments in expenses
+  console.log("[Dashboard] Total salary payments in system:", salaryPayments.length);
+  console.log("[Dashboard] All salary payments:", salaryPayments);
+  
   const monthlySalaryExpenses = salaryPayments.reduce((sum, p) => {
     const payDate = new Date(p.date);
     if (payDate.getMonth() === currentMonth && payDate.getFullYear() === currentYear) {
+      console.log("[Dashboard] Including payment:", p.id, p.staffName, p.amount);
       return sum + Number(p.amount || 0);
     }
     return sum;
   }, 0);
+  
+  console.log("[Dashboard] Total monthly salary expenses:", monthlySalaryExpenses);
 
   // Total expenses includes both regular expenses and salary payments
   const totalMonthlyExpenses = monthlyExpenses + monthlySalaryExpenses;

@@ -60,5 +60,6 @@ export interface SalaryPayment {
   amount: number;
   paymentType: "advance" | "full";
   date: string;
+  salaryForMonth?: string;
   numberOfMonths?: number;
 }

@@ -53,6 +53,8 @@ interface DataContextType {
   addUser: (user: Omit<StaffUser, "id">) => Promise<void>;
   addSalaryPayment: (payment: Omit<SalaryPayment, "id">) => Promise<void>;
   refreshSalaryPayments: () => Promise<void>;
+  deleteSalaryPayment: (id: string) => Promise<void>;
+  clearAllSalaryPayments: () => Promise<any>;
   updateItem: (id: string, item: Partial<Item>) => Promise<void>;
   updateSale: (id: string, sale: Partial<Sale>) => Promise<void>;
   updateStockout: (id: string, stockout: Partial<Stockout>) => Promise<void>;
@@ -157,12 +159,30 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (isElectron) return;
-    writeStorage("salon_salary_payments", salaryPayments);
+    console.log("[useEffect] Salary payments changed, count:", salaryPayments.length);
+    // Don't write to localStorage here - it's already done in addSalaryPayment
+    // This avoids race conditions and duplicate writes
   }, [isElectron, salaryPayments]);
 
   const normalizeDate = (value?: string | null) => {
     if (!value) return getTodayDateString();
     return value.split("T")[0];
+  };
+
+  const normalizeSalaryReferenceMonth = (value?: string | null, fallbackDate?: string) => {
+    if (value && /^\d{4}-\d{2}$/.test(value)) {
+      return value;
+    }
+
+    const fallback = fallbackDate ? new Date(fallbackDate) : new Date();
+    if (!Number.isNaN(fallback.getTime())) {
+      const year = fallback.getFullYear();
+      const month = String(fallback.getMonth() + 1).padStart(2, "0");
+      return `${year}-${month}`;
+    }
+
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   };
 
   const mapItemRow = (row: any): Item => ({
@@ -702,6 +722,89 @@ export function DataProvider({ children }: { children: ReactNode }) {
     await refreshUsers();
   };
 
+  const deleteSalaryPayment = async (id: string) => {
+    console.log("[deleteSalaryPayment] Deleting payment:", id);
+    console.log("[deleteSalaryPayment] Current state before delete:", salaryPayments.length, "payments");
+    
+    if (!isElectron) {
+      // Browser mode: Remove from state and update localStorage
+      try {
+        // First, filter the payment
+        const updated = salaryPayments.filter((p) => p.id !== id);
+        console.log("[deleteSalaryPayment] Filtered payment - new count:", updated.length);
+        
+        if (updated.length === salaryPayments.length) {
+          console.error("[deleteSalaryPayment] Payment not found in array! ID:", id);
+          console.log("[deleteSalaryPayment] Payment IDs in array:", salaryPayments.map(p => p.id));
+          throw new Error(`Payment with ID ${id} not found in array`);
+        }
+        
+        // Write to localStorage
+        writeStorage("salon_salary_payments", updated);
+        console.log("[deleteSalaryPayment] Written to localStorage");
+        
+        // Verify it was written
+        const verified = readStorage<SalaryPayment[]>("salon_salary_payments", []);
+        console.log("[deleteSalaryPayment] Verified from localStorage - count:", verified.length);
+        
+        // Now update state
+        setSalaryPayments(updated);
+        console.log("[deleteSalaryPayment] State updated");
+        
+        // Wait for state to be sure it's updated
+        await new Promise(resolve => setTimeout(resolve, 100));
+        console.log("[deleteSalaryPayment] Completed with timeout");
+        
+      } catch (error) {
+        console.error("[deleteSalaryPayment] Browser mode error:", error);
+        throw error;
+      }
+      return;
+    }
+
+    // Electron mode: Delete from database
+    try {
+      console.log("[deleteSalaryPayment] Deleting from database with ID:", Number(id));
+      await window.electronAPI.deleteSalaryPayment(Number(id));
+      console.log("[deleteSalaryPayment] Database deletion successful, refreshing...");
+      await refreshSalaryPayments();
+      console.log("[deleteSalaryPayment] Refresh complete");
+    } catch (error) {
+      console.error("[deleteSalaryPayment] Database error:", error);
+      throw error;
+    }
+  };
+
+  const clearAllSalaryPayments = async () => {
+    console.log("[clearAllSalaryPayments] Clearing all salary payment records");
+    
+    if (!isElectron) {
+      // Browser mode: Clear all from state and localStorage
+      try {
+        setSalaryPayments([]);
+        writeStorage("salon_salary_payments", []);
+        const verified = readStorage<SalaryPayment[]>("salon_salary_payments", []);
+        console.log("[clearAllSalaryPayments] Cleared localStorage, verified count:", verified.length);
+        return { deleted: true, deletedCount: salaryPayments.length };
+      } catch (error) {
+        console.error("[clearAllSalaryPayments] Browser mode error:", error);
+        throw error;
+      }
+    }
+
+    // Electron mode: Clear all from database
+    try {
+      console.log("[clearAllSalaryPayments] Clearing from database");
+      const result = await window.electronAPI.clearAllSalaryPayments();
+      console.log("[clearAllSalaryPayments] Database cleared:", result);
+      await refreshSalaryPayments();
+      return result;
+    } catch (error) {
+      console.error("[clearAllSalaryPayments] Database error:", error);
+      throw error;
+    }
+  };
+
   const updateUser = async (id: string, updates: Partial<StaffUser>) => {
     if (!isElectron) {
       setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, ...updates } : u)));
@@ -730,20 +833,53 @@ export function DataProvider({ children }: { children: ReactNode }) {
    * - UI displays last 30 days only (filtered on app load)
    */
   const addSalaryPayment = async (payment: Omit<SalaryPayment, "id">) => {
-    const newPayment = { ...payment, id: genId() };
-    console.log("Adding salary payment:", newPayment);
+    const actualPaymentDate = new Date().toISOString();
+    const salaryForMonth = normalizeSalaryReferenceMonth(payment.salaryForMonth, payment.date);
+
+    // Generate unique ID using timestamp + random string to prevent collisions
+    const uniqueId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const newPayment = {
+      ...payment,
+      id: uniqueId,
+      date: actualPaymentDate,
+      salaryForMonth
+    };
+    console.log("[addSalaryPayment] Adding new payment:", newPayment);
+    console.log("[addSalaryPayment] Payment details:", {
+      staffId: payment.staffId,
+      staffName: payment.staffName,
+      amount: payment.amount,
+      paymentType: payment.paymentType,
+      date: actualPaymentDate,
+      salaryForMonth,
+      id: uniqueId
+    });
     
     if (!isElectron) {
       // Browser mode: Use functional update pattern and immediately persist to localStorage
-      setSalaryPayments((prev) => {
-        const updated = [...prev, newPayment];
-        console.log("Updated payments (browser mode):", updated.length, "payments");
-        // Immediately write to localStorage
-        writeStorage("salon_salary_payments", updated);
-        console.log("Persisted to localStorage:", updated.length, "payments");
-        return updated;
+      return new Promise<void>((resolve) => {
+        setSalaryPayments((prev) => {
+          console.log("[addSalaryPayment] Previous payments count:", prev.length);
+          console.log("[addSalaryPayment] Previous payments:", prev);
+          const updated = [...prev, newPayment];
+          console.log("[addSalaryPayment] Updated payments count:", updated.length);
+          console.log("[addSalaryPayment] Updated payments:", updated);
+          // Immediately write to localStorage to ensure persistence
+          writeStorage("salon_salary_payments", updated);
+          // Verify write
+          const verified = readStorage<SalaryPayment[]>("salon_salary_payments", []);
+          console.log("[addSalaryPayment] Verified localStorage count:", verified.length);
+          console.log("[addSalaryPayment] Verified localStorage:", verified);
+          
+          // Resolve the promise after a brief delay to ensure React has processed the update
+          setTimeout(() => {
+            console.log("[addSalaryPayment] State update complete, resolving promise");
+            resolve();
+          }, 50);
+          
+          return updated;
+        });
       });
-      return;
     }
 
     // Electron mode: Save to database and update local state
@@ -753,7 +889,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
         staffName: payment.staffName,
         amount: payment.amount,
         paymentType: payment.paymentType,
-        date: payment.date,
+        date: actualPaymentDate,
+        salaryForMonth,
         numberOfMonths: payment.numberOfMonths
       });
       console.log("Saved to database successfully");
@@ -791,7 +928,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
         staffName: row.staff_name,
         amount: Number(row.amount),
         paymentType: row.payment_type as "advance" | "full",
-        date: row.date,
+        date: row.created_at || row.date,
+        salaryForMonth: normalizeSalaryReferenceMonth(row.salary_for_month, row.date || row.created_at),
         numberOfMonths: row.number_of_months ? Number(row.number_of_months) : undefined
       }))
     );
@@ -825,6 +963,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
         addUser,
         addSalaryPayment,
         refreshSalaryPayments,
+        deleteSalaryPayment,
+        clearAllSalaryPayments,
         updateItem,
         updateSale,
         updateStockout,
