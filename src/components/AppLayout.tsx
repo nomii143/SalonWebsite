@@ -2,6 +2,7 @@ import { ReactNode, useEffect, useState } from "react";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Menu, X } from "lucide-react";
 import { AppMobileNav } from "@/components/AppMobileNav";
+import logo from "@/assets/logo.png";
 
 export function AppLayout({ children }: { children: ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -24,7 +25,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
         {/* Mobile header */}
         <header className="md:hidden flex items-center justify-between px-4 py-3 border-b border-border">
           <div className="flex items-center gap-2">
-            <img src="/assets/geero`s logo.jpeg" alt="Geeroz Salon" className="w-6 h-6" />
+            <img src={logo} alt="Geeroz Salon" className="w-6 h-6 object-contain" />
             <h1 className="font-display text-lg font-bold text-primary">Geeroz Salon</h1>
           </div>
           <button onClick={() => setMobileOpen(true)} className="p-2 rounded-lg hover:bg-muted">
