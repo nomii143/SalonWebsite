@@ -50,6 +50,7 @@ export interface StaffUser {
   pictureUrl: string;
   joinDate: string;
   monthlySalary?: number;
+  openingBalance?: number;
   source?: string;
 }
 
@@ -58,8 +59,9 @@ export interface SalaryPayment {
   staffId: string;
   staffName: string;
   amount: number;
-  paymentType: "advance" | "full";
+  paymentType: "advance" | "full" | "manual";
   date: string;
   salaryForMonth?: string;
   numberOfMonths?: number;
+  notes?: string;
 }

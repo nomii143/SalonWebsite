@@ -8,13 +8,22 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Banknote, UserPlus, MoreVertical, User, History, Wallet, Users, CheckCircle2, Clock, AlertCircle } from "lucide-react";
+import { Banknote, UserPlus, MoreVertical, User, History, Wallet, Users, CheckCircle2, Clock } from "lucide-react";
 import { toast } from "sonner";
 
 export default function StaffListPage() {
   const navigate = useNavigate();
-  const { users: staff, deleteUser: deleteStaff, updateUser: updateStaff, salaryPayments } = useData();
+  const { users: staff, deleteUser: deleteStaff, updateUser: updateStaff, salaryPayments, getStaffRunningBalance, clearAllSalaryPayments } = useData();
   const [editingStaff, setEditingStaff] = useState<StaffUser | null>(null);
+
+  const handleClearHistory = async () => {
+    try {
+      await clearAllSalaryPayments();
+      toast.success("Payment history cleared");
+    } catch (error) {
+      toast.error("Failed to clear payment history");
+    }
+  };
 
   console.log("[StaffSalaries] Page render - Total payments:", salaryPayments.length);
   console.log("[StaffSalaries] All payments:", salaryPayments);
@@ -56,15 +65,6 @@ export default function StaffListPage() {
     return `For ${referenceStart.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`;
   };
 
-
-
-
-
-  // Sort payments by date (newest first)
-  const sortedPayments = [...salaryPayments].sort((a, b) => 
-    new Date(b.date).getTime() - new Date(a.date).getTime()
-  );
-
   // Filter to show only last 30 days on the UI (but all data is persisted in localStorage)
   const last30DaysPayments = salaryPayments.filter((payment) => {
     const now = new Date();
@@ -81,6 +81,7 @@ export default function StaffListPage() {
   const totalMonthlySalary = staff.reduce((sum, s) => sum + (s.monthlySalary || 0), 0);
   const totalPayments = salaryPayments.reduce((sum, p) => sum + p.amount, 0);
   const totalStaffPaid = new Set(salaryPayments.map(p => p.staffId)).size;
+  const currentBalances = new Map(staff.map((s) => [s.id, getStaffRunningBalance(s.id)]));
 
   return (
     <div className="space-y-8 p-4 bg-background min-h-screen">
@@ -160,6 +161,7 @@ export default function StaffListPage() {
                 <TableRow>
                   <TableHead className="font-semibold">Staff Member</TableHead>
                   <TableHead className="font-semibold">Monthly Salary</TableHead>
+                  <TableHead className="font-semibold">Balance Status</TableHead>
                   <TableHead className="text-right font-semibold">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -178,6 +180,17 @@ export default function StaffListPage() {
                       <span className="font-bold text-primary text-lg">
                         Rs {(s.monthlySalary || 0).toLocaleString()}
                       </span>
+                    </TableCell>
+                    <TableCell>
+                      {(() => {
+                        const balance = currentBalances.get(s.id) || 0;
+                        const hasAdvance = balance < 0;
+                        return (
+                          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold ${hasAdvance ? "bg-red-100 text-red-700" : "bg-green-100 text-green-800"}`}>
+                            {hasAdvance ? "Advance Taken" : "Salary Pending"}: Rs {Math.abs(balance).toLocaleString()}
+                          </span>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell className="text-right">
                       <DropdownMenu>
@@ -214,9 +227,12 @@ export default function StaffListPage() {
                   <p className="text-xs text-muted-foreground mt-1">Showing last 30 days </p>
                 </div>
               </div>
-              <span className="bg-amber-100 backdrop-blur-sm px-3 py-1 rounded-full text-amber-700 text-xs font-semibold">
-                {last30DaysPayments.length} Recent
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="bg-amber-100 backdrop-blur-sm px-3 py-1 rounded-full text-amber-700 text-xs font-semibold">
+                  {last30DaysPayments.length} Recent
+                </span>
+               
+              </div>
             </div>
           </div>
           
@@ -233,160 +249,54 @@ export default function StaffListPage() {
                 </p>
               </div>
             ) : (
-              <div className="space-y-6">
-                {(() => {
-                  // Group payments by staff and CURRENT PAYMENT MONTH (when paid), not salary month
-                  const groupedPayments = new Map<string, Map<string, typeof last30DaysPayments>>();
-                  
-                  last30DaysPayments.forEach(payment => {
-                    const staffKey = `${payment.staffId}-${payment.staffName}`;
-                    // Use the actual payment date (when recorded/paid) for grouping
-                    const paymentDate = new Date(payment.date);
-                    const monthKey = `${paymentDate.getFullYear()}-${String(paymentDate.getMonth() + 1).padStart(2, '0')}`;
-                    
-                    if (!groupedPayments.has(staffKey)) {
-                      groupedPayments.set(staffKey, new Map());
-                    }
-                    
-                    const staffMonths = groupedPayments.get(staffKey)!;
-                    if (!staffMonths.has(monthKey)) {
-                      staffMonths.set(monthKey, []);
-                    }
-                    
-                    staffMonths.get(monthKey)!.push(payment);
-                  });
-                  
-                  // Sort staff entries by most recent payment date (newest first)
-                  const sortedStaffEntries = Array.from(groupedPayments.entries()).sort((a, b) => {
-                    const aLatestDate = Math.max(...Array.from(a[1].values()).flat().map(p => new Date(p.date).getTime()));
-                    const bLatestDate = Math.max(...Array.from(b[1].values()).flat().map(p => new Date(p.date).getTime()));
-                    return bLatestDate - aLatestDate;
-                  });
-                  
-                  return sortedStaffEntries.map(([staffKey, months]) => {
-                    const staffName = staffKey.split('-').slice(1).join('-');
-                    
-                    // Sort months by newest first (descending)
-                    const sortedMonths = Array.from(months.entries()).sort((a, b) => {
-                      const aDate = new Date(`${a[0].split('-')[0]}-${a[0].split('-')[1]}`).getTime();
-                      const bDate = new Date(`${b[0].split('-')[0]}-${b[0].split('-')[1]}`).getTime();
-                      return bDate - aDate;
-                    });
-                    
-                    return (
-                      <div key={staffKey} className="border-b border-border pb-6 last:border-b-0">
-                        <div className="flex items-center gap-3 mb-4">
-                          <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold">
-                            {staffName.charAt(0).toUpperCase()}
+              <div className="space-y-3">
+                {last30DaysPayments.map((payment) => {
+                  const paymentDate = new Date(payment.date);
+                  const runningBalance = getStaffRunningBalance(payment.staffId, paymentDate);
+
+                  return (
+                    <div
+                      key={payment.id}
+                      className="p-4 rounded-lg border border-amber-200 bg-white hover:bg-amber-50 transition-colors"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-start gap-3 flex-1 min-w-0">
+                          <div className="flex-shrink-0 mt-0.5">
+                            {payment.paymentType === 'advance' ? (
+                              <Clock className="w-5 h-5 text-blue-600" />
+                            ) : (
+                              <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                            )}
                           </div>
-                          <h3 className="font-bold text-foreground text-base">{staffName}</h3>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-sm text-foreground">
+                              {payment.staffName}
+                            </p>
+                            <p className="text-xs text-foreground/70 mt-0.5">
+                              {payment.paymentType === 'advance' ? 'Advance Payment' : 'Salary Payment'}
+                              {` • ${getReferenceLabel(payment)}`}
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {paymentDate.toLocaleString('en-US', {
+                                month: 'short',
+                                day: 'numeric',
+                                year: 'numeric',
+                                hour: 'numeric',
+                                minute: '2-digit'
+                              })}
+                            </p>
+                          </div>
                         </div>
-                        
-                        <div className="space-y-3 ml-2">
-                          {sortedMonths.map(([monthKey, monthPayments]) => {
-                            const hasAdvance = monthPayments.some(p => p.paymentType === 'advance');
-                            const hasFullSalary = monthPayments.some(p => p.paymentType === 'full');
-                            const [year, month] = monthKey.split('-');
-                            const monthDate = new Date(parseInt(year), parseInt(month) - 1);
-                            const monthLabel = monthDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-                            const totalAmount = monthPayments.reduce((sum, p) => sum + p.amount, 0);
-                            
-                            // Get staff member's monthly salary for balance due calculation
-                            const staffMember = staff.find(s => s.id === staffKey.split('-')[0]);
-                            const monthlySalary = staffMember?.monthlySalary || 0;
-                            const balanceDue = Math.max(0, monthlySalary - totalAmount);
-                            
-                            // Sort payments by date (newest first)
-                            const sortedPayments = [...monthPayments].sort((a, b) => 
-                              new Date(b.date).getTime() - new Date(a.date).getTime()
-                            );
-                            
-                            return (
-                              <div key={monthKey} className={`p-4 rounded-lg border border-amber-200 overflow-hidden bg-white`}>
-                                {/* Summary Header */}
-                                <div className={`pb-3 mb-4 border-b-2 border-amber-300 bg-amber-50`}>
-                                  <div className="flex items-center justify-between">
-                                    <div>
-                                      <p className={`font-bold text-base text-amber-900`}>
-                                        {monthLabel}
-                                      </p>
-                                      {hasAdvance && hasFullSalary && (
-                                        <p className="text-xs text-amber-700 font-semibold mt-1">Dual Record - Advance + Full Salary</p>
-                                      )}
-                                    </div>
-                                    <div className="text-right">
-                                      <p className="font-bold text-lg text-amber-900">Rs {totalAmount.toLocaleString()}</p>
-                                      <p className="text-xs text-muted-foreground">Total Payout</p>
-                                    </div>
-                                  </div>
-                                </div>
-                                
-                                {/* Individual Transactions */}
-                                <div className="space-y-2">
-                                  {sortedPayments.map((payment) => (
-                                    <div 
-                                      key={payment.id} 
-                                      className={`p-3 rounded-lg border-l-4 transition-all border-l-amber-500 bg-amber-50 hover:bg-amber-100`}
-                                    >
-                                      <div className="flex items-start justify-between gap-3">
-                                        <div className="flex items-start gap-3 flex-1 min-w-0">
-                                          {/* Icon */}
-                                          <div className="flex-shrink-0 mt-0.5">
-                                            {payment.paymentType === 'full' ? (
-                                              <CheckCircle2 className="w-5 h-5 text-amber-600" />
-                                            ) : (
-                                              <Clock className="w-5 h-5 text-amber-600" />
-                                            )}
-                                          </div>
-                                          
-                                          {/* Transaction Details */}
-                                          <div className="flex-1 min-w-0">
-                                            <p className={`font-semibold text-sm text-amber-900`}>
-                                              {payment.paymentType === 'full' ? 'Full Salary Payment' : 'Advance Payment'}
-                                            </p>
-                                            <p className="text-xs text-foreground/70 mt-0.5">
-                                              Paid on {new Date(payment.date).toLocaleDateString('en-US', { 
-                                                month: 'long',
-                                                day: 'numeric'
-                                              })}
-                                              {` • ${getReferenceLabel(payment)}`}
-                                            </p>
-                                          </div>
-                                        </div>
-                                        
-                                        {/* Amount */}
-                                        <div className="flex items-center justify-end flex-shrink-0">
-                                          <span className={`font-bold text-sm text-amber-700`}>
-                                            Rs {payment.amount.toLocaleString()}
-                                          </span>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                                
-                                {/* Balance Due Indicator */}
-                                {balanceDue > 0 && monthlySalary > 0 && (
-                                  <div className="mt-4 p-2 bg-amber-100 border border-amber-300 rounded-lg flex items-center gap-2">
-                                    <AlertCircle className="w-4 h-4 text-amber-700 flex-shrink-0" />
-                                    <div className="flex-1 min-w-0">
-                                      <p className="text-xs text-amber-900 font-semibold">
-                                        Balance Due: Rs {balanceDue.toLocaleString()}
-                                      </p>
-                                      <p className="text-xs text-amber-700 mt-0.5">
-                                        Expected: Rs {monthlySalary.toLocaleString()} | Paid: Rs {totalAmount.toLocaleString()}
-                                      </p>
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
+                        <div className="text-right flex-shrink-0">
+                          <p className="font-bold text-sm text-amber-700">Rs {payment.amount.toLocaleString()}</p>
+                          <p className="text-[11px] text-muted-foreground mt-1">
+                            Balance: Rs {Math.abs(runningBalance).toLocaleString()} {runningBalance >= 0 ? '(Salary Pending)' : '(Advance Taken)'}
+                          </p>
                         </div>
                       </div>
-                    );
-                  });
-                })()}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>

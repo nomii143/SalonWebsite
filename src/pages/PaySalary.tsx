@@ -1,21 +1,30 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useData } from "@/context/DataContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, Wallet, AlertTriangle, Info, Lock, Loader2 } from "lucide-react";
+import { ArrowLeft, Wallet, Info, Loader2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { getTodayDateString } from "@/lib/utils";
 
 export default function PaySalaryPage() {
   const navigate = useNavigate();
-  const { users: staff, addSalaryPayment, salaryPayments } = useData();
+  const {
+    users: staff,
+    addSalaryPayment,
+    salaryPayments,
+    getStaffRunningBalance,
+    getStaffTotalEarned,
+    getStaffTotalPaid,
+    getReferenceMonthPaidAmount,
+    isReferenceMonthLocked
+  } = useData();
   const [selectedStaffId, setSelectedStaffId] = useState("");
   const [payType, setPayType] = useState<"advance" | "full" | null>(null);
   const [amount, setAmount] = useState("");
+  const [advanceAdjustmentAmount, setAdvanceAdjustmentAmount] = useState("");
   const [date, setDate] = useState(getTodayDateString());
   const [numberOfMonths, setNumberOfMonths] = useState(1);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -59,9 +68,16 @@ export default function PaySalaryPage() {
     const [hasExistingAdvance, setHasExistingAdvance] = useState(false);
     const [advanceBlockReason, setAdvanceBlockReason] = useState("");
 
+    // ==== CHECK EXISTING ADVANCE ====
+    // Checks if an advance payment already exists for the selected month
+    const checkExistingAdvance = useCallback((staffId: string, checkDate: Date) => {
+      setAdvanceBlockReason("");
+      setHasExistingAdvance(false);
+    }, []);
+
     // ==== CHECK STATUS FUNCTION ====
     // Called whenever date or staff selection changes
-    const checkStatus = (staffId: string, checkDate: Date) => {
+    const checkStatus = useCallback((staffId: string, checkDate: Date) => {
       if (!staffId) {
         setMonthlyBalance(0);
         setIsMonthFullyPaid(false);
@@ -74,137 +90,25 @@ export default function PaySalaryPage() {
       const selectedStaff = staff.find(s => s.id === staffId);
       if (!selectedStaff) return;
 
+      const referenceMonth = `${checkDate.getFullYear()}-${String(checkDate.getMonth() + 1).padStart(2, "0")}`;
+      const monthIsLocked = isReferenceMonthLocked(staffId, referenceMonth);
+      const paidAmount = getReferenceMonthPaidAmount(staffId, referenceMonth);
       const monthlySalary = selectedStaff.monthlySalary || 0;
-      const paidInSelectedMonth = getTotalPaidInMonth(staffId, checkDate);
-      const remaining = Math.max(0, monthlySalary - paidInSelectedMonth);
-      const previousDue = getPreviousDueBalance(staffId, checkDate);
 
-      setMonthlyBalance(remaining + previousDue);
-      setIsMonthFullyPaid(remaining <= 0);
-
-      // Set lock reason if month is fully paid
-      if (remaining <= 0) {
-        const monthName = checkDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-        setMonthLockReason(`Full salary for ${monthName} has already been paid. No further payments allowed.`);
+      setMonthlyBalance(getStaffRunningBalance(staffId, checkDate));
+      setIsMonthFullyPaid(monthIsLocked);
+      if (monthIsLocked) {
+        setMonthLockReason(`Fully paid (${paidAmount.toLocaleString()} / ${monthlySalary.toLocaleString()})`);
       } else {
         setMonthLockReason("");
       }
       
-      // Check if an advance already exists for this month
       checkExistingAdvance(staffId, checkDate);
-    };
-    
-    // ==== CHECK EXISTING ADVANCE ====
-    // Checks if an advance payment already exists for the selected month
-    const checkExistingAdvance = (staffId: string, checkDate: Date) => {
-      const checkMonth = checkDate.getMonth();
-      const checkYear = checkDate.getFullYear();
-      
-      // Find if there's any advance that covers this month
-      const existingAdvance = salaryPayments.find(payment => {
-        if (payment.staffId !== staffId || payment.paymentType !== "advance") return false;
-        
-        const existingDate = getPaymentReferenceDate(payment);
-        const existingMonth = existingDate.getMonth();
-        const existingYear = existingDate.getFullYear();
-        
-        // For multi-month advances
-        if (payment.numberOfMonths && payment.numberOfMonths > 1) {
-          const endDate = new Date(existingDate);
-          endDate.setMonth(endDate.getMonth() + payment.numberOfMonths - 1);
-          const endMonth = endDate.getMonth();
-          const endYear = endDate.getFullYear();
-          
-          const checkTimestamp = new Date(checkYear, checkMonth, 1).getTime();
-          const startTimestamp = new Date(existingYear, existingMonth, 1).getTime();
-          const endTimestamp = new Date(endYear, endMonth, 1).getTime();
-          
-          return checkTimestamp >= startTimestamp && checkTimestamp <= endTimestamp;
-        }
-        
-        // For single-month advances
-        return existingMonth === checkMonth && existingYear === checkYear;
-      });
-      
-      if (existingAdvance) {
-        const monthName = checkDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-        if (existingAdvance.numberOfMonths && existingAdvance.numberOfMonths > 1) {
-          const startDate = getPaymentReferenceDate(existingAdvance);
-          const endDate = new Date(startDate);
-          endDate.setMonth(endDate.getMonth() + existingAdvance.numberOfMonths - 1);
-          const startMonth = startDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-          const endMonth = endDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-          setAdvanceBlockReason(`An advance has already been paid for ${monthName} (part of ${existingAdvance.numberOfMonths}-month advance from ${startMonth} to ${endMonth}). Only one advance is allowed per month.`);
-        } else {
-          setAdvanceBlockReason(`An advance has already been paid for ${monthName}. Only one advance is allowed per month.`);
-        }
-        setHasExistingAdvance(true);
-      } else {
-        setAdvanceBlockReason("");
-        setHasExistingAdvance(false);
-      }
-    };
+    }, [staff, getStaffRunningBalance, isReferenceMonthLocked, getReferenceMonthPaidAmount, checkExistingAdvance]);
 
     // ==== SMART PERIOD LOCK DETECTION ====
   // Checks if a period is locked due to existing payments
   const isPeriodLocked = (staffId: string, startDate: Date, monthsToCheck: number = 1): { isLocked: boolean; reason: string } => {
-    const periods = [];
-    for (let i = 0; i < monthsToCheck; i++) {
-      const checkDate = new Date(startDate);
-      checkDate.setMonth(checkDate.getMonth() + i);
-      periods.push(checkDate);
-    }
-
-    // Check each month in the period
-    for (const checkDate of periods) {
-      const checkMonth = checkDate.getMonth();
-      const checkYear = checkDate.getFullYear();
-
-      // Check 1: Is there a Full Salary paid in any of these months?
-      const hasFullSalary = salaryPayments.some(payment => {
-        if (payment.staffId !== staffId || payment.paymentType !== "full") return false;
-        const existingDate = getPaymentReferenceDate(payment);
-        return existingDate.getMonth() === checkMonth && existingDate.getFullYear() === checkYear;
-      });
-
-      if (hasFullSalary) {
-        return {
-          isLocked: true,
-          reason: `Full Salary already paid for ${checkDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}. Period is closed.`
-        };
-      }
-
-      // Check 2: Is there an overlapping Advance?
-      const hasOverlappingAdvance = salaryPayments.some(payment => {
-        if (payment.staffId !== staffId || payment.paymentType !== "advance") return false;
-        
-        const existingDate = getPaymentReferenceDate(payment);
-        const existingMonth = existingDate.getMonth();
-        const existingYear = existingDate.getFullYear();
-        
-        // Calculate the end month of the existing advance
-        const endDate = new Date(existingDate);
-        endDate.setMonth(endDate.getMonth() + (payment.numberOfMonths || 1) - 1);
-        const endMonth = endDate.getMonth();
-        const endYear = endDate.getFullYear();
-        
-        // Check if checkDate falls within [existingDate, endDate]
-        const checkTimestamp = new Date(checkYear, checkMonth, 1).getTime();
-        const startTimestamp = new Date(existingYear, existingMonth, 1).getTime();
-        const endTimestamp = new Date(endYear, endMonth, 1).getTime();
-        
-        return checkTimestamp >= startTimestamp && checkTimestamp <= endTimestamp;
-      });
-
-      if (hasOverlappingAdvance) {
-        const monthName = checkDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-        return {
-          isLocked: true,
-          reason: `An active advance already covers ${monthName}. Cannot create overlapping payments.`
-        };
-      }
-    }
-
     return { isLocked: false, reason: "" };
   };
 
@@ -240,33 +144,13 @@ export default function PaySalaryPage() {
       const existingMonth = existingDate.getMonth();
       const existingYear = existingDate.getFullYear();
       
-      // For multi-month advances (numberOfMonths > 1)
-      if (payment.numberOfMonths && payment.numberOfMonths > 1) {
-        // Calculate the end month of this advance
-        const endDate = new Date(existingDate);
-        endDate.setMonth(endDate.getMonth() + payment.numberOfMonths - 1);
-        const endMonth = endDate.getMonth();
-        const endYear = endDate.getFullYear();
-        
-        // Check if paymentDate falls within the range [existingDate, endDate]
-        const paymentTimestamp = new Date(paymentYear, paymentMonth, 1).getTime();
-        const startTimestamp = new Date(existingYear, existingMonth, 1).getTime();
-        const endTimestamp = new Date(endYear, endMonth, 1).getTime();
-        
-        return paymentTimestamp >= startTimestamp && paymentTimestamp <= endTimestamp;
-      }
-      
-      // For single-month advances, check exact month match
+      // Only count advances that START in this month (not spread across months)
       return existingMonth === paymentMonth && existingYear === paymentYear;
     });
 
-    // For multi-month advances, divide the total amount by numberOfMonths to get monthly portion
-    return advances.reduce((total, payment) => {
-      if (payment.numberOfMonths && payment.numberOfMonths > 1) {
-        return total + (payment.amount / payment.numberOfMonths);
-      }
-      return total + payment.amount;
-    }, 0);
+    // Count the FULL advance amount (don't divide by numberOfMonths)
+    // This shows the complete remaining balance in the next month
+    return advances.reduce((total, payment) => total + payment.amount, 0);
   };
 
   // Check if full salary has been paid in the selected month
@@ -276,7 +160,7 @@ export default function PaySalaryPage() {
 
     return salaryPayments
       .filter(payment => {
-        if (payment.staffId !== staffId || payment.paymentType !== "full") return false;
+        if (payment.staffId !== staffId || payment.paymentType === "advance") return false;
         const existingDate = getPaymentReferenceDate(payment);
         return existingDate.getMonth() === paymentMonth && existingDate.getFullYear() === paymentYear;
       })
@@ -307,22 +191,21 @@ export default function PaySalaryPage() {
     while (monthCursor.getTime() < selectedMonthStart.getTime()) {
       const paidInMonth = getTotalPaidInMonth(staffId, monthCursor);
       cumulativeDue += monthlySalary - paidInMonth;
-      cumulativeDue = Math.max(0, cumulativeDue);
+      // Don't clamp here - allow full overpayment to carry to next month
       monthCursor.setMonth(monthCursor.getMonth() + 1);
     }
 
-    return cumulativeDue;
+    // Only return positive due (actual amount owed)
+    return Math.max(0, cumulativeDue);
   };
 
   const isFullSalaryPaid = (staffId: string, paymentDate: Date) => {
-    const paymentMonth = paymentDate.getMonth();
-    const paymentYear = paymentDate.getFullYear();
+    const selectedStaff = staff.find(s => s.id === staffId);
+    const monthlySalary = selectedStaff?.monthlySalary || 0;
+    if (!monthlySalary) return false;
 
-    return salaryPayments.some(payment => {
-      if (payment.staffId !== staffId || payment.paymentType !== "full") return false;
-      const existingDate = getPaymentReferenceDate(payment);
-      return existingDate.getMonth() === paymentMonth && existingDate.getFullYear() === paymentYear;
-    });
+    const totalPaidInMonth = getTotalPaidInMonth(staffId, paymentDate);
+    return totalPaidInMonth >= monthlySalary;
   };
 
   // Get remaining salary after advances
@@ -400,36 +283,29 @@ export default function PaySalaryPage() {
   };
 
   const handlePayTypeChange = (type: "advance" | "full") => {
-    // Prevent selecting advance if one already exists for this month
-    if (type === "advance" && hasExistingAdvance) {
-      toast.error(advanceBlockReason);
+    const referenceMonth = getReferenceMonthKey(date);
+    const monthLocked = selectedStaffId ? isReferenceMonthLocked(selectedStaffId, referenceMonth) : false;
+
+    if (type === "full" && monthLocked) {
+      toast.error("This reference month is fully paid. Full salary is locked.");
       return;
     }
-    
+
     setPayType(type);
     
-    // Full Salary: Lock to 1 month and auto-calculate as (Monthly Salary - Current Month Advance) + Previous Due
+    // Full Salary: manual settlement with suggested current net due
     if (type === "full" && selectedStaffId) {
-      setNumberOfMonths(1); // Lock to 1 month
-      const selectedStaff = staff.find(s => s.id === selectedStaffId);
-      if (selectedStaff?.monthlySalary) {
-        const paymentDate = new Date(date);
-        const monthlySalary = selectedStaff.monthlySalary;
-        // Get advances paid in THIS MONTH ONLY (starting in this month)
-        const advanceForThisMonth = getAdvancesForCurrentMonth(selectedStaffId, paymentDate);
-        const fullSalaryAmount = Math.max(0, monthlySalary - advanceForThisMonth);
-        const previousDue = getPreviousDueBalance(selectedStaffId, paymentDate);
-        setAmount(String(fullSalaryAmount + previousDue));
-      }
+      const suggestedAmount = Math.max(0, getStaffRunningBalance(selectedStaffId, new Date(date)));
+      setAmount(String(suggestedAmount));
+      setAdvanceAdjustmentAmount(String(suggestedAmount));
     } else if (type === "advance" && selectedStaffId) {
-      // Advance: Reset to 1 month, auto-fill with total outstanding + future months
+      // Advance: allow any amount with simple default monthly salary
       setNumberOfMonths(1);
       const selectedStaff = staff.find(s => s.id === selectedStaffId);
       if (selectedStaff?.monthlySalary) {
-        const paymentDate = new Date(date);
-        const suggestedAmount = getAdvanceTotalWithPreviousDue(selectedStaffId, paymentDate, 1);
-        setAmount(String(suggestedAmount));
+        setAmount(String(selectedStaff.monthlySalary));
       }
+      setAdvanceAdjustmentAmount("");
     }
   };
 
@@ -442,18 +318,11 @@ export default function PaySalaryPage() {
      const paymentDate = new Date(date);
      checkStatus(staffId, paymentDate);
    
-    // If Full Salary is already selected, auto-fill with (Monthly Salary - Current Month Advance) + Previous Due
+    // If Full Salary is already selected, suggest current due (editable)
     if (payType === "full" && selectedStaff?.monthlySalary) {
-      const paymentDate = new Date(date);
-      const monthlySalary = selectedStaff.monthlySalary;
-      const advanceForThisMonth = getAdvancesForCurrentMonth(staffId, paymentDate);
-      const fullSalaryAmount = Math.max(0, monthlySalary - advanceForThisMonth);
-      const previousDue = getPreviousDueBalance(staffId, paymentDate);
-      setAmount(String(fullSalaryAmount + previousDue));
+      setAmount(String(Math.max(0, getStaffRunningBalance(staffId, new Date(date)))));
     } else if (payType === "advance" && selectedStaff?.monthlySalary) {
-      // If Advance is already selected, auto-fill with total outstanding + future months
-      const suggestedAmount = getAdvanceTotalWithPreviousDue(staffId, paymentDate, numberOfMonths);
-      setAmount(String(suggestedAmount));
+      setAmount(String(selectedStaff.monthlySalary));
     }
   };
 
@@ -462,55 +331,15 @@ export default function PaySalaryPage() {
     const paymentDate = new Date(newDate);
     checkStatus(selectedStaffId, paymentDate);
     
-    // If Advance is selected and the new date has an existing advance, reset payType
-    if (payType === "advance") {
-      // checkStatus will update hasExistingAdvance, but we need to check manually here
-      const checkMonth = paymentDate.getMonth();
-      const checkYear = paymentDate.getFullYear();
-      
-      const existingAdvance = salaryPayments.find(payment => {
-        if (payment.staffId !== selectedStaffId || payment.paymentType !== "advance") return false;
-        
-        const existingDate = getPaymentReferenceDate(payment);
-        const existingMonth = existingDate.getMonth();
-        const existingYear = existingDate.getFullYear();
-        
-        if (payment.numberOfMonths && payment.numberOfMonths > 1) {
-          const endDate = new Date(existingDate);
-          endDate.setMonth(endDate.getMonth() + payment.numberOfMonths - 1);
-          const endMonth = endDate.getMonth();
-          const endYear = endDate.getFullYear();
-          
-          const checkTimestamp = new Date(checkYear, checkMonth, 1).getTime();
-          const startTimestamp = new Date(existingYear, existingMonth, 1).getTime();
-          const endTimestamp = new Date(endYear, endMonth, 1).getTime();
-          
-          return checkTimestamp >= startTimestamp && checkTimestamp <= endTimestamp;
-        }
-        
-        return existingMonth === checkMonth && existingYear === checkYear;
-      });
-      
-      if (existingAdvance) {
-        // Reset payType if advance exists for this month
-        setPayType(null);
-        setAmount("");
-      }
-    }
-    
-    // Recalculate amount when date changes
+    // Recalculate suggested amount when date changes
     if (payType === "full" && selectedStaffId) {
-      const selectedStaff = staff.find(s => s.id === selectedStaffId);
-      if (selectedStaff?.monthlySalary) {
-        const monthlySalary = selectedStaff.monthlySalary;
-        const advanceForThisMonth = getAdvancesForCurrentMonth(selectedStaffId, paymentDate);
-        const fullSalaryAmount = Math.max(0, monthlySalary - advanceForThisMonth);
-        const previousDue = getPreviousDueBalance(selectedStaffId, paymentDate);
-        setAmount(String(fullSalaryAmount + previousDue));
-      }
-    } else if (payType === "advance" && selectedStaffId) {
-      const suggestedAmount = getAdvanceTotalWithPreviousDue(selectedStaffId, paymentDate, numberOfMonths);
+      const suggestedAmount = Math.max(0, getStaffRunningBalance(selectedStaffId, paymentDate));
       setAmount(String(suggestedAmount));
+      setAdvanceAdjustmentAmount(String(suggestedAmount));
+    } else if (payType === "advance" && selectedStaffId) {
+      const selectedStaff = staff.find(s => s.id === selectedStaffId);
+      setAmount(String(selectedStaff?.monthlySalary || 0));
+      setAdvanceAdjustmentAmount("");
     }
   };
 
@@ -523,7 +352,7 @@ export default function PaySalaryPage() {
     }
 
     checkStatus(selectedStaffId, new Date(date));
-  }, [selectedStaffId, date, salaryPayments]);
+  }, [selectedStaffId, date, salaryPayments, checkStatus]);
   /**
    * Handle payment confirmation
    * - All payment details (staff, amount, type, date, months) are saved permanently to database
@@ -546,7 +375,7 @@ export default function PaySalaryPage() {
 
       const paymentDate = new Date(date);
       const salaryForMonth = getReferenceMonthKey(date);
-      const monthsToCheck = payType === "advance" ? numberOfMonths : 1;
+      const monthLocked = isReferenceMonthLocked(selectedStaffId, salaryForMonth);
 
     const paymentAmount = Number(amount);
 
@@ -556,174 +385,26 @@ export default function PaySalaryPage() {
       return toast.error("Payment amount must be greater than zero");
     }
 
-    // Validation 0.5: For Advance Payments - Check max limit
-    if (payType === "advance") {
-      // FIRST: Check if an advance already exists for this specific month
-      const checkMonth = paymentDate.getMonth();
-      const checkYear = paymentDate.getFullYear();
-      
-      const hasExistingAdvanceForMonth = salaryPayments.some(payment => {
-        if (payment.staffId !== selectedStaffId || payment.paymentType !== "advance") return false;
-        
-        const existingDate = getPaymentReferenceDate(payment);
-        const existingMonth = existingDate.getMonth();
-        const existingYear = existingDate.getFullYear();
-        
-        // For multi-month advances
-        if (payment.numberOfMonths && payment.numberOfMonths > 1) {
-          const endDate = new Date(existingDate);
-          endDate.setMonth(endDate.getMonth() + payment.numberOfMonths - 1);
-          const endMonth = endDate.getMonth();
-          const endYear = endDate.getFullYear();
-          
-          const checkTimestamp = new Date(checkYear, checkMonth, 1).getTime();
-          const startTimestamp = new Date(existingYear, existingMonth, 1).getTime();
-          const endTimestamp = new Date(endYear, endMonth, 1).getTime();
-          
-          return checkTimestamp >= startTimestamp && checkTimestamp <= endTimestamp;
-        }
-        
-        // For single-month advances
-        return existingMonth === checkMonth && existingYear === checkYear;
-      });
-      
-      if (hasExistingAdvanceForMonth) {
-        setIsProcessing(false);
-        const monthName = paymentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-        return toast.error(`An advance has already been paid for ${monthName}. Only one advance is allowed per month.`);
-      }
-      
-      const maxAdvanceAllowed = getAdvanceTotalWithPreviousDue(selectedStaffId, paymentDate, numberOfMonths);
-      if (paymentAmount > maxAdvanceAllowed) {
-        setIsProcessing(false);
-        return toast.error(
-          `Advance payment cannot exceed Rs ${maxAdvanceAllowed.toLocaleString()} for selected period and due balance ` +
-          `(Monthly salary: Rs ${selectedStaff.monthlySalary?.toLocaleString()})`
-        );
-      }
-
-      // Validate overlapping advance for multi-month scenarios
-      const lockCheck = isPeriodLocked(selectedStaffId, paymentDate, monthsToCheck);
-      if (lockCheck.isLocked && lockCheck.reason.includes("advance")) {
-        setIsProcessing(false);
-        return toast.error(lockCheck.reason);
-      }
-    }
-
-    // FULL SALARY - Always single month, locked to current month
-    if (payType === "full") {
-      // Check if already paid full salary (can have both advance + full salary in same month)
-      if (isFullSalaryPaid(selectedStaffId, paymentDate)) {
-        setIsProcessing(false);
-        const monthName = paymentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-        return toast.error(`Full salary already paid for ${monthName}!`);
-      }
-
-      // Get total payable amount: (Monthly Salary - Current Month Advance) + Previous Due
-      // This allows BOTH advance and full salary to be saved as separate records
-      const monthlySalary = selectedStaff.monthlySalary || 0;
-      const advanceForThisMonth = getAdvancesForCurrentMonth(selectedStaffId, paymentDate);
-      const fullSalaryAmount = Math.max(0, monthlySalary - advanceForThisMonth);
-      const previousDue = getPreviousDueBalance(selectedStaffId, paymentDate);
-      const finalAmount = fullSalaryAmount + previousDue;
-
-      if (finalAmount <= 0) {
-        setIsProcessing(false);
-        return toast.error("No remaining amount to pay. Full salary has been covered by advances.");
-      }
-
-      // Create single payment record - saved as separate record alongside any advance
-      await addSalaryPayment({
-        staffId: selectedStaffId,
-        staffName: selectedStaff.fullName,
-        amount: finalAmount,
-        paymentType: "full",
-        date: new Date().toISOString(),
-        salaryForMonth
-      });
-
-      const monthName = paymentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-      console.log("[PaySalary] Full salary payment saved successfully");
-      toast.success(`Full salary payment of Rs ${finalAmount.toLocaleString()} confirmed for ${monthName}${previousDue > 0 ? ` (includes Rs ${previousDue.toLocaleString()} previous due)` : ''}!`);
-      
-      // Delay to ensure state is fully updated and persisted before navigation
-      setTimeout(() => {
-        console.log("[PaySalary] Navigating to staff salaries page");
-        setIsProcessing(false);
-        navigate("/staffsalaries");
-      }, 500);
-      return;
-    }
-
-    // ADVANCE - Can be multi-month
-    if (payType === "advance" && numberOfMonths > 1) {
-      // CREATE SINGLE RECORD with numberOfMonths attribute (not multiple records)
-      await addSalaryPayment({
-        staffId: selectedStaffId,
-        staffName: selectedStaff.fullName,
-        amount: paymentAmount,
-        paymentType: "advance",
-        date: new Date().toISOString(),
-        salaryForMonth,
-        numberOfMonths: numberOfMonths
-      });
-      
-      const referenceMonths = getReferenceMonthsLabel(paymentDate, numberOfMonths);
-      
-      console.log("[PaySalary] Multi-month advance payment saved successfully");
-      toast.success(`Advance payment of Rs ${paymentAmount.toLocaleString()} confirmed. Reference: Advance for ${referenceMonths}.`);
-      
-      // Delay to ensure state is fully updated and persisted before navigation
-      setTimeout(() => {
-        console.log("[PaySalary] Navigating to staff salaries page");
-        setIsProcessing(false);
-        navigate("/staffsalaries");
-      }, 500);
-      return;
-    }
-
-    // ADVANCE - Single month
-    const paymentMonth = paymentDate.getMonth();
-    const paymentYear = paymentDate.getFullYear();
-
-    // Get advances already paid this month
-    const advancesPaid = getAdvancesPaidInMonth(selectedStaffId, paymentDate);
-    const totalPaymentThisMonth = advancesPaid + paymentAmount;
-
-    // Validation 1: Check if total payment (advances + current) exceeds monthly salary
-    if (selectedStaff.monthlySalary && totalPaymentThisMonth > selectedStaff.monthlySalary) {
+    if (payType === "full" && monthLocked) {
       setIsProcessing(false);
-      return toast.error(
-        `Total payment (Rs ${totalPaymentThisMonth.toLocaleString()}) exceeds monthly salary of Rs ${selectedStaff.monthlySalary.toLocaleString()}. ` +
-        `Already paid Rs ${advancesPaid.toLocaleString()} in advances.`
-      );
+      return toast.error("This reference month is already fully paid. Salary transactions are locked.");
     }
 
-    // Validation 2: Check if full salary has already been paid this month
-    const fullSalaryPaid = salaryPayments.some(payment => {
-      if (payment.staffId !== selectedStaffId || payment.paymentType !== "full") return false;
-      const existingDate = getPaymentReferenceDate(payment);
-      return existingDate.getMonth() === paymentMonth && existingDate.getFullYear() === paymentYear;
-    });
-
-    if (fullSalaryPaid) {
-      setIsProcessing(false);
-      const monthName = paymentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-      return toast.error(`Full salary has already been paid to ${selectedStaff.fullName} in ${monthName}`);
-    }
-
-    // Create single-month advance payment record
+    // Flexible ledger: allow any manual amount and unlimited advances
     await addSalaryPayment({
       staffId: selectedStaffId,
       staffName: selectedStaff.fullName,
       amount: paymentAmount,
-      paymentType: payType,
+      paymentType: payType === "full" ? "full" : "advance",
       date: new Date().toISOString(),
-      salaryForMonth
+      salaryForMonth,
+      numberOfMonths: payType === "advance" ? numberOfMonths : undefined,
+      notes: payType === "full"
+        ? `Salary settlement${advanceAdjustmentAmount ? ` | adjustment: Rs ${Number(advanceAdjustmentAmount || 0).toLocaleString()}` : ""}`
+        : "Advance payment"
     });
-    
-    console.log("[PaySalary] Single-month advance payment saved successfully");
-    toast.success("Payment confirmed successfully");
+    const monthName = paymentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    toast.success(`Payment of Rs ${paymentAmount.toLocaleString()} recorded for ${monthName}`);
     
     // Delay to ensure state is fully updated and persisted before navigation
     setTimeout(() => {
@@ -858,11 +539,18 @@ export default function PaySalaryPage() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map((month, idx) => (
-                            <SelectItem key={idx} value={String(idx)}>
-                              {month}
+                          {['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map((month, idx) => {
+                            const year = new Date(date).getFullYear();
+                            const monthKey = `${year}-${String(idx + 1).padStart(2, '0')}`;
+                            const monthlySalary = staff.find((s) => s.id === selectedStaffId)?.monthlySalary || 0;
+                            const paidForMonth = getReferenceMonthPaidAmount(selectedStaffId, monthKey);
+                            const isLocked = isReferenceMonthLocked(selectedStaffId, monthKey);
+                            return (
+                            <SelectItem key={idx} value={String(idx)} disabled={isLocked}>
+                              {month} {monthlySalary > 0 ? `(Paid: Rs ${paidForMonth.toLocaleString()} / Rs ${monthlySalary.toLocaleString()})` : ""}
                             </SelectItem>
-                          ))}
+                            );
+                          })}
                         </SelectContent>
                       </Select>
                     </div>
@@ -931,89 +619,65 @@ export default function PaySalaryPage() {
                 const paymentDate = new Date(date);
                 const selectedStaff = staff.find(s => s.id === selectedStaffId);
                 const monthlySalary = selectedStaff?.monthlySalary || 0;
-                const paidInSelectedMonth = getTotalPaidInMonth(selectedStaffId, paymentDate);
-                const remaining = Math.max(0, monthlySalary - paidInSelectedMonth);
+                const advancesForCurrentMonth = getAdvancesForCurrentMonth(selectedStaffId, paymentDate);
+                const fullPaidCurrentMonth = getFullSalaryPaidInMonth(selectedStaffId, paymentDate);
+                const remaining = Math.max(0, monthlySalary - (advancesForCurrentMonth + fullPaidCurrentMonth));
                 const previousDue = getPreviousDueBalance(selectedStaffId, paymentDate);
                 const totalOutstanding = remaining + previousDue;
+                const selectedReferenceMonth = getReferenceMonthKey(date);
+                const monthPaid = getReferenceMonthPaidAmount(selectedStaffId, selectedReferenceMonth);
+                const monthLocked = isReferenceMonthLocked(selectedStaffId, selectedReferenceMonth);
                 
                 return (
                   <div>
-                     {/* Lock Warning - Show if month is fully paid */}
-                     {isMonthFullyPaid && monthLockReason && (
-                       <div className="bg-red-50 border-2 border-red-400 rounded-xl p-4 flex items-start gap-3 mb-4">
-                         <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-                         <div>
-                           <p className="text-sm font-semibold text-red-900">Full Salary Locked</p>
-                           <p className="text-xs text-red-700 mt-1">{monthLockReason}</p>
-                         </div>
-                       </div>
-                     )}
-                     
-                     {/* Advance Block Warning - Show if advance already exists */}
-                     {hasExistingAdvance && advanceBlockReason && (
-                       <div className="bg-orange-50 border-2 border-orange-400 rounded-xl p-4 flex items-start gap-3 mb-4">
-                         <Lock className="w-5 h-5 text-orange-600 flex-shrink-0 mt-0.5" />
-                         <div>
-                           <p className="text-sm font-semibold text-orange-900">Advance Already Paid</p>
-                           <p className="text-xs text-orange-700 mt-1">{advanceBlockReason}</p>
-                         </div>
-                       </div>
-                     )}
+                    
                    
                     <div className="grid grid-cols-2 gap-4">
                       <button
                         type="button"
                         onClick={() => handlePayTypeChange("full")}
-                          disabled={isMonthFullyPaid}
+                        disabled={monthLocked}
                         className={`
                           p-6 rounded-xl border-3 transition-all duration-200 
                           ${payType === "full"
                             ? 'border-emerald-500 bg-emerald-50 shadow-lg ring-2 ring-emerald-300'
                             : 'border-gray-300 bg-white hover:border-emerald-400 hover:shadow-md'
                           }
-                            ${isMonthFullyPaid ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+                            ${monthLocked ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
                         `}
                       >
                         <div className="text-center">
                           <div className="font-bold text-lg mb-1">Full Salary</div>
                           <div className="text-xs text-muted-foreground">Pay complete monthly salary</div>
-                            {isMonthFullyPaid && (
-                            <div className="text-xs text-red-600 mt-2">Already Paid</div>
+                          {monthLocked && (
+                            <div className="text-xs text-emerald-700 font-semibold mt-1">Fully Paid</div>
                           )}
                         </div>
                       </button>
                       <button
                         type="button"
                         onClick={() => handlePayTypeChange("advance")}
-                        disabled={hasExistingAdvance}
                         className={`
                           p-6 rounded-xl border-3 transition-all duration-200
                           ${payType === "advance"
                             ? 'border-blue-500 bg-blue-50 shadow-lg ring-2 ring-blue-300'
                             : 'border-gray-300 bg-white hover:border-blue-400 hover:shadow-md'
                           }
-                          ${hasExistingAdvance ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+                          cursor-pointer
                         `}
                       >
                         <div className="text-center">
                           <div className="font-bold text-lg mb-1">Advance Payment</div>
                           <div className="text-xs text-muted-foreground">Pay partial amount in advance</div>
-                          {hasExistingAdvance && (
-                            <div className="text-xs text-orange-600 mt-2">Already Paid</div>
-                          )}
                         </div>
                       </button>
                     </div>
-                    {!isMonthFullyPaid && (
-                      <p className="text-xs text-emerald-700 mt-2 text-center">
-                        Remaining balance for this month: Rs {remaining.toLocaleString()}
-                      </p>
-                    )}
-                    {previousDue > 0 && (
-                      <p className="text-xs text-amber-700 mt-1 text-center font-medium">
-                        Monthly Salary + Remaining Previous Salary = Rs {(monthlySalary + previousDue).toLocaleString()}
-                      </p>
-                    )}
+                    <p className="text-xs text-emerald-700 mt-2 text-center">
+                      Running balance: Rs {Math.abs(getStaffRunningBalance(selectedStaffId, paymentDate)).toLocaleString()} ({getStaffRunningBalance(selectedStaffId, paymentDate) >= 0 ? 'Salary pending' : 'Advance taken by staff'})
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1 text-center">
+                      Month progress: Paid Rs {monthPaid.toLocaleString()} / Rs {monthlySalary.toLocaleString()} {monthLocked ? '(Fully Paid)' : ''}
+                    </p>
                   </div>
                 );
               })()}
@@ -1025,17 +689,10 @@ export default function PaySalaryPage() {
             const paymentDate = new Date(date);
             const selectedStaff = staff.find(s => s.id === selectedStaffId);
             const monthlySalary = selectedStaff?.monthlySalary || 0;
-            const advancesPaid = getAdvancesPaidInMonth(selectedStaffId, paymentDate);
-            const advancesForCurrentMonth = getAdvancesForCurrentMonth(selectedStaffId, paymentDate);
-            const fullPaid = getFullSalaryPaidInMonth(selectedStaffId, paymentDate);
-            const paidInSelectedMonth = getTotalPaidInMonth(selectedStaffId, paymentDate);
-            const isFullSalaryPaid = paidInSelectedMonth >= monthlySalary;
-            const remaining = Math.max(0, monthlySalary - paidInSelectedMonth);
-            const previousDue = getPreviousDueBalance(selectedStaffId, paymentDate);
-            const totalOutstanding = remaining + previousDue;
-            
-            // For display purposes: show how much remains after current month's advance
-            const fullSalaryRemaining = Math.max(0, monthlySalary - advancesForCurrentMonth);
+            const totalEarned = getStaffTotalEarned(selectedStaffId, paymentDate);
+            const totalPaid = getStaffTotalPaid(selectedStaffId, paymentDate);
+            const netBalance = getStaffRunningBalance(selectedStaffId, paymentDate);
+            const isBalanceDue = netBalance >= 0;
             
             const monthName = paymentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
@@ -1044,9 +701,9 @@ export default function PaySalaryPage() {
               <>
                 {/* Payment Status Card */}
                 <div className={`rounded-xl p-5 border-2 ${
-                  isFullSalaryPaid 
+                  isBalanceDue 
                     ? 'bg-green-50 border-green-300' 
-                    : advancesPaid > 0
+                    : totalPaid > totalEarned
                     ? 'bg-blue-50 border-blue-300'
                     : 'bg-gray-50 border-gray-300'
                 }`}>
@@ -1058,46 +715,22 @@ export default function PaySalaryPage() {
                       <span className="text-muted-foreground">Monthly Salary:</span>
                       <span className="font-semibold">Rs {monthlySalary.toLocaleString()}</span>
                     </div>
-                    {advancesForCurrentMonth > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Total Salaries Earned:</span>
+                      <span className="font-semibold">Rs {totalEarned.toLocaleString()}</span>
+                    </div>
+                    {totalPaid > 0 && (
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Advance Paid (This Month):</span>
-                        <span className="font-semibold text-blue-600">Rs {advancesForCurrentMonth.toLocaleString()}</span>
-                      </div>
-                    )}
-                    {fullPaid > 0 && (
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Already Paid (Full):</span>
-                        <span className="font-semibold text-emerald-600">Rs {fullPaid.toLocaleString()}</span>
-                      </div>
-                    )}
-                    {previousDue > 0 && (
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Previous Due:</span>
-                        <span className="font-semibold text-amber-700">Rs {previousDue.toLocaleString()}</span>
-                      </div>
-                    )}
-                    {payType === "full" && (
-                      <div className="flex justify-between pt-2 border-t">
-                        <span className={`font-semibold text-amber-700`}>
-                          Full Salary Net Amount (After Advance):
-                        </span>
-                        <span className={`font-bold text-amber-700`}>
-                          Rs {fullSalaryRemaining.toLocaleString()}
-                        </span>
-                      </div>
-                    )}
-                    {previousDue > 0 && (
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">+ Previous Due:</span>
-                        <span className="font-semibold text-amber-700">Rs {previousDue.toLocaleString()}</span>
+                        <span className="text-muted-foreground">Advance Already Taken:</span>
+                        <span className="font-semibold text-red-600">Rs {totalPaid.toLocaleString()}</span>
                       </div>
                     )}
                     <div className="flex justify-between pt-2 border-t">
-                      <span className={`font-semibold ${isFullSalaryPaid ? 'text-green-700' : 'text-orange-700'}`}>
-                        {isFullSalaryPaid ? '✓ Fully Paid' : 'Total Outstanding:'}
+                      <span className={`font-semibold ${!isBalanceDue ? 'text-red-700' : 'text-green-700'}`}>
+                        {!isBalanceDue ? 'Total Advance Taken:' : 'Salary Pending:'}
                       </span>
-                      <span className={`font-bold text-lg ${isFullSalaryPaid ? 'text-green-600' : 'text-orange-600'}`}>
-                        {isFullSalaryPaid ? 'Rs 0' : `Rs ${(fullSalaryRemaining + previousDue).toLocaleString()}`}
+                      <span className={`font-bold text-lg ${!isBalanceDue ? 'text-red-600' : 'text-green-600'}`}>
+                        Rs {Math.abs(netBalance).toLocaleString()}
                       </span>
                     </div>
                   </div>
@@ -1133,64 +766,102 @@ export default function PaySalaryPage() {
 
 
               {/* Amount Field */}
+              {payType === "full" && (
+                <div className="space-y-2">
+                  <Label className="text-base font-semibold">Advance Adjustment</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    value={advanceAdjustmentAmount}
+                    onChange={(e) => {
+                      setAdvanceAdjustmentAmount(e.target.value);
+                      setAmount(e.target.value);
+                    }}
+                    placeholder="How much of the total debt/advance do you want to adjust/pay now?"
+                    className="h-12 text-base"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    This amount will be recorded as the salary settlement for the selected reference month.
+                  </p>
+                  {(() => {
+                    const monthlySalary = staff.find(s => s.id === selectedStaffId)?.monthlySalary || 0;
+                    const paidInSelectedMonth = getTotalPaidInMonth(selectedStaffId, new Date(date));
+                    const previousDue = getPreviousDueBalance(selectedStaffId, new Date(date));
+                    const adjustmentValue = Number(advanceAdjustmentAmount) || 0;
+                    const extraAdvance = Math.max(0, adjustmentValue - monthlySalary);
+
+                    return adjustmentValue > 0 ? (
+                      <div className="space-y-1 text-xs font-medium">
+                        <p className="text-amber-700">Old (Previous Due): Rs {previousDue.toLocaleString()}</p>
+                        <p className="text-green-700">Full Salary Payment: Rs {monthlySalary.toLocaleString()}</p>
+                        {extraAdvance > 0 && (
+                          <p className="text-red-700">Advance Taken: Rs {extraAdvance.toLocaleString()}</p>
+                        )}
+                        <p className="text-blue-700 font-semibold">Total Payment: Rs {adjustmentValue.toLocaleString()}</p>
+                      </div>
+                    ) : null;
+                  })()}
+                </div>
+              )}
+
+              {payType === "advance" && (
               <div className="space-y-2">
-                <Label className="text-base font-semibold">
-                  {payType === "full" ? "Amount (Auto-Calculated)" : "Advance Amount (Rs)"}
-                </Label>
+                <Label className="text-base font-semibold">Advance Amount (Rs)</Label>
                 <Input 
                   type="number" 
                   min="1" 
                   value={amount} 
                   onChange={(e) => setAmount(e.target.value)} 
-                  placeholder={
-                    payType === "full" 
-                      ? "Calculated automatically (Read-only)"
-                      : "Auto-filled with suggested amount (editable)"
-                  }
-                  disabled={payType === "full"}
-                  readOnly={payType === "full"}
-                  className={`h-14 text-lg font-semibold ${payType === "full" ? "bg-gray-100 cursor-not-allowed text-emerald-700" : ""}`}
+                  placeholder="Auto-filled with suggested amount (editable)"
+                  className="h-14 text-lg font-semibold"
                 />
-                {payType === "advance" && (
-                  <p className="text-xs text-blue-600 font-medium">
-                    Suggested (Outstanding + Advance): Rs {getAdvanceTotalWithPreviousDue(selectedStaffId, new Date(date), numberOfMonths).toLocaleString()} for {numberOfMonths} month{numberOfMonths > 1 ? 's' : ''}. You can change this amount.
-                  </p>
-                )}
+                <p className="text-xs text-blue-600 font-medium">
+                  Suggested starting amount: Rs {(staff.find(s => s.id === selectedStaffId)?.monthlySalary || 0).toLocaleString()} for {numberOfMonths} month{numberOfMonths > 1 ? 's' : ''}. You can enter any amount.
+                </p>
                 {payType === "advance" && (() => {
                   const monthlySalary = staff.find(s => s.id === selectedStaffId)?.monthlySalary || 0;
-                  const paidInSelectedMonth = getTotalPaidInMonth(selectedStaffId, new Date(date));
-                  const remaining = Math.max(0, monthlySalary - paidInSelectedMonth);
-                  const previousDue = getPreviousDueBalance(selectedStaffId, new Date(date));
-                  const totalOutstanding = remaining + previousDue;
-                  const advanceValue = Number(amount) || 0;
+                  const paymentDate = new Date(date);
+                  const referenceMonth = getReferenceMonthKey(date);
+                  
+                  // Get advance already taken in THIS reference month
+                  const advanceInCurrentMonth = getReferenceMonthPaidAmount(selectedStaffId, referenceMonth);
+                  
+                  // Get total advance taken so far (all payments up to now)
+                  const totalPaidSoFar = getStaffTotalPaid(selectedStaffId, paymentDate);
+                  
+                  // Get total earned so far
+                  const totalEarnedSoFar = getStaffTotalEarned(selectedStaffId, paymentDate);
+                  
+                  // Calculate net advance taken (if payments exceed earnings, that's advance)
+                  const netAdvanceTaken = Math.max(0, totalPaidSoFar - totalEarnedSoFar);
+                  
+                  // New advance being given
+                  const newAdvanceValue = Number(amount) || 0;
+                  
+                  // Total advance after this payment
+                  const totalAfterNewAdvance = totalPaidSoFar + newAdvanceValue;
 
                   return (
-                    <div className="space-y-1 text-xs font-medium text-amber-700">
-                      <p>Old (Previous Due): Rs {previousDue.toLocaleString()}</p>
-                      <p>Total Outstanding (Current + Old): Rs {totalOutstanding.toLocaleString()}</p>
-                      <p>Total with Advance: Rs {advanceValue.toLocaleString()}</p>
+                    <div className="space-y-1 text-xs font-medium">
+                      <p className="text-red-700">Advance Already Taken (This Month): Rs {advanceInCurrentMonth.toLocaleString()}</p>
+                      <p className="text-red-700">Total Advance Already Taken: Rs {netAdvanceTaken.toLocaleString()}</p>
+                      {newAdvanceValue > 0 && (
+                        <>
+                          <p className="text-blue-700">New Advance Payment: Rs {newAdvanceValue.toLocaleString()}</p>
+                          <p className="text-orange-700 font-semibold">Total After Payment: Rs {totalAfterNewAdvance.toLocaleString()}</p>
+                        </>
+                      )}
                     </div>
                   );
                 })()}
               </div>
+              )}
 
               {/* Confirm Payment Button - Smart Validation */}
               {(() => {
                 const monthlySalary = staff.find(s => s.id === selectedStaffId)?.monthlySalary || 0;
-                const advancesForCurrentMonth = getAdvancesForCurrentMonth(selectedStaffId, new Date(date));
-                const fullSalaryRemaining = Math.max(0, monthlySalary - advancesForCurrentMonth);
-                const previousDue = getPreviousDueBalance(selectedStaffId, new Date(date));
-                const totalForFullSalary = fullSalaryRemaining + previousDue;
-                
-                // For Full Salary: Can pay if there's remaining amount after deducting current month advances
-                const canPayFull = payType === "full" && totalForFullSalary > 0;
-                
-                // For Advance: Can pay if amount is valid and doesn't exceed max
-                const maxAdvance = getAdvanceTotalWithPreviousDue(selectedStaffId, new Date(date), numberOfMonths);
-                const advanceAmountValid = payType === "advance" && 
-                  Number(amount) > 0 && 
-                  Number(amount) <= maxAdvance;
-                const canPayAdvance = payType === "advance" && advanceAmountValid;
+                const canPayFull = payType === "full" && Number(amount) > 0;
+                const canPayAdvance = payType === "advance" && Number(amount) > 0;
                 
                 const canProcess = (payType === "full" && canPayFull) || (payType === "advance" && canPayAdvance);
                 const isDisabled = !amount || Number(amount) <= 0 || !canProcess || isProcessing;

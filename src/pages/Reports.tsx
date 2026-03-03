@@ -284,19 +284,24 @@ const Reports = () => {
               firstDetails
             ]);
 
-            // Add remaining payments as sub-detail lines (no staff name/date)
+            // Add remaining payments as separate rows with full details (showing multiple transactions in same month)
             for (let i = 1; i < sortedPayments.length; i++) {
               const payment = sortedPayments[i];
+              const additionalPaymentDate = new Date(payment.date).toLocaleDateString('en-GB', { 
+                day: '2-digit', 
+                month: 'short', 
+                year: 'numeric' 
+              });
               const details = payment.paymentType === 'full' 
                 ? 'Full Salary Payment' 
                 : `Advance Payment (${payment.numberOfMonths || 1} month${payment.numberOfMonths && payment.numberOfMonths > 1 ? 's' : ''})`;
 
               monthTotal += payment.amount;
 
-              console.log(`[Reports] Adding sub-detail line for ${staffName}: ${payment.paymentType} Rs. ${payment.amount}`);
+              console.log(`[Reports] Adding additional transaction for ${staffName}: ${payment.paymentType} Rs. ${payment.amount}`);
               tableBody.push([
-                '', // Empty date cell for sub-detail line
-                '', // Empty staff name cell for sub-detail line
+                additionalPaymentDate, // Show date for each transaction
+                `  ${staffName}`, // Indent staff name with spaces
                 payment.paymentType === 'full' ? 'Full Salary' : 'Advance',
                 `Rs. ${payment.amount.toLocaleString()}`,
                 details
@@ -318,20 +323,7 @@ const Reports = () => {
             headStyles: { fillColor: [40, 80, 120], fontSize: 10, halign: 'left', valign: 'middle' },
             bodyStyles: { valign: 'middle' },
             didParseCell: (data) => {
-              // Style sub-detail rows (where first two columns are empty)
-              if (data.row.section === 'body') {
-                const cellText = Array.isArray(data.cell.text) ? data.cell.text[0] : data.cell.text;
-                const isSubDetail = cellText === '';
-                if (data.column.index === 0 || data.column.index === 1) {
-                  if (isSubDetail && data.column.index === 0) {
-                    // Light gray background for sub-detail lines
-                    data.cell.styles.fillColor = [245, 245, 245];
-                  }
-                }
-                if (data.column.index === 0 || data.column.index === 1) {
-                  data.cell.styles.fillColor = [245, 245, 245];
-                }
-              }
+              // Right-align amount column
               if (data.column.index === 3) {
                 data.cell.styles.halign = 'right';
               }

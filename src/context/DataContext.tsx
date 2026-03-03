@@ -52,6 +52,12 @@ interface DataContextType {
   addExpense: (expense: Omit<Expense, "id">) => Promise<void>;
   addUser: (user: Omit<StaffUser, "id">) => Promise<void>;
   addSalaryPayment: (payment: Omit<SalaryPayment, "id">) => Promise<void>;
+  getStaffRunningBalance: (staffId: string, upTo?: Date) => number;
+  getStaffTotalEarned: (staffId: string, upTo?: Date) => number;
+  getStaffTotalPaid: (staffId: string, upTo?: Date) => number;
+  getReferenceMonthPaidAmount: (staffId: string, referenceMonth: string) => number;
+  isReferenceMonthLocked: (staffId: string, referenceMonth: string) => boolean;
+  getLoggedSalaryReferenceMonths: (staffId: string) => string[];
   refreshSalaryPayments: () => Promise<void>;
   deleteSalaryPayment: (id: string) => Promise<void>;
   clearAllSalaryPayments: () => Promise<any>;
@@ -260,8 +266,92 @@ export function DataProvider({ children }: { children: ReactNode }) {
       pictureUrl: details.pictureUrl || "",
       joinDate: details.joinDate || "",
       monthlySalary: details.monthlySalary ? Number(details.monthlySalary) : undefined,
+      openingBalance: details.openingBalance ? Number(details.openingBalance) : 0,
       source: details.source || ""
     };
+  };
+
+  const getMonthStart = (value: Date) => new Date(value.getFullYear(), value.getMonth(), 1);
+
+  const getStaffLedgerStart = (staffMember?: StaffUser, upTo?: Date) => {
+    const endDate = upTo ?? new Date();
+    if (!staffMember) return getMonthStart(endDate);
+
+    const joinDate = staffMember.joinDate ? new Date(staffMember.joinDate) : null;
+    if (joinDate && !Number.isNaN(joinDate.getTime())) {
+      return getMonthStart(joinDate);
+    }
+
+    const staffPaymentDates = salaryPayments
+      .filter((payment) => payment.staffId === staffMember.id)
+      .map((payment) => new Date(payment.date))
+      .filter((d) => !Number.isNaN(d.getTime()));
+
+    if (staffPaymentDates.length > 0) {
+      const firstPayment = new Date(Math.min(...staffPaymentDates.map((d) => d.getTime())));
+      return getMonthStart(firstPayment);
+    }
+
+    return getMonthStart(endDate);
+  };
+
+  const getMonthDiffInclusive = (fromDate: Date, toDate: Date) => {
+    const yearDiff = toDate.getFullYear() - fromDate.getFullYear();
+    const monthDiff = toDate.getMonth() - fromDate.getMonth();
+    return yearDiff * 12 + monthDiff + 1;
+  };
+
+  const getStaffTotalEarned = (staffId: string, upTo: Date = new Date()) => {
+    const staffMember = users.find((user) => user.id === staffId);
+    const monthlySalary = staffMember?.monthlySalary || 0;
+    if (!monthlySalary) return staffMember?.openingBalance || 0;
+
+    const endMonth = getMonthStart(upTo);
+    const startMonth = getStaffLedgerStart(staffMember, upTo);
+    const monthsEarned = Math.max(0, getMonthDiffInclusive(startMonth, endMonth));
+    return (staffMember?.openingBalance || 0) + monthsEarned * monthlySalary;
+  };
+
+  const getStaffTotalPaid = (staffId: string, upTo: Date = new Date()) => {
+    const upToTimestamp = upTo.getTime();
+    return salaryPayments
+      .filter((payment) => payment.staffId === staffId)
+      .filter((payment) => {
+        const paymentDate = new Date(payment.date);
+        return !Number.isNaN(paymentDate.getTime()) && paymentDate.getTime() <= upToTimestamp;
+      })
+      .reduce((sum, payment) => sum + payment.amount, 0);
+  };
+
+  const getStaffRunningBalance = (staffId: string, upTo: Date = new Date()) => {
+    const totalEarned = getStaffTotalEarned(staffId, upTo);
+    const totalPaid = getStaffTotalPaid(staffId, upTo);
+    return totalEarned - totalPaid;
+  };
+
+  const getReferenceMonthPaidAmount = (staffId: string, referenceMonth: string) => {
+    const normalizedMonth = normalizeSalaryReferenceMonth(referenceMonth);
+    return salaryPayments
+      .filter((payment) => payment.staffId === staffId)
+      .filter((payment) => normalizeSalaryReferenceMonth(payment.salaryForMonth, payment.date) === normalizedMonth)
+      .reduce((sum, payment) => sum + payment.amount, 0);
+  };
+
+  const isReferenceMonthLocked = (staffId: string, referenceMonth: string) => {
+    const staffMember = users.find((user) => user.id === staffId);
+    const monthlySalary = staffMember?.monthlySalary || 0;
+    if (!monthlySalary) return false;
+    return getReferenceMonthPaidAmount(staffId, referenceMonth) >= monthlySalary;
+  };
+
+  const getLoggedSalaryReferenceMonths = (staffId: string) => {
+    const logged = new Set(
+      salaryPayments
+        .filter((payment) => payment.staffId === staffId)
+        .filter((payment) => payment.paymentType !== "advance")
+        .map((payment) => normalizeSalaryReferenceMonth(payment.salaryForMonth, payment.date))
+    );
+    return Array.from(logged.values()).sort();
   };
 
   const refreshItems = async () => {
@@ -636,7 +726,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
         phone: user.phone,
         pictureUrl: user.pictureUrl,
         joinDate: user.joinDate,
-        monthlySalary: user.monthlySalary
+        monthlySalary: user.monthlySalary,
+        openingBalance: user.openingBalance || 0
       }
     });
     await refreshUsers();
@@ -820,7 +911,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
         phone: updates.phone,
         pictureUrl: updates.pictureUrl,
         joinDate: updates.joinDate,
-        monthlySalary: updates.monthlySalary
+        monthlySalary: updates.monthlySalary,
+        openingBalance: updates.openingBalance
       }
     });
     await refreshUsers();
@@ -891,7 +983,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
         paymentType: payment.paymentType,
         date: actualPaymentDate,
         salaryForMonth,
-        numberOfMonths: payment.numberOfMonths
+        numberOfMonths: payment.numberOfMonths,
+        notes: payment.notes
       });
       console.log("Saved to database successfully");
       // Also update local state
@@ -927,10 +1020,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
         staffId: String(row.staff_id),
         staffName: row.staff_name,
         amount: Number(row.amount),
-        paymentType: row.payment_type as "advance" | "full",
+        paymentType: row.payment_type as "advance" | "full" | "manual",
         date: row.created_at || row.date,
         salaryForMonth: normalizeSalaryReferenceMonth(row.salary_for_month, row.date || row.created_at),
-        numberOfMonths: row.number_of_months ? Number(row.number_of_months) : undefined
+        numberOfMonths: row.number_of_months ? Number(row.number_of_months) : undefined,
+        notes: row.notes || undefined
       }))
     );
   };
@@ -962,6 +1056,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
         addExpense,
         addUser,
         addSalaryPayment,
+        getStaffRunningBalance,
+        getStaffTotalEarned,
+        getStaffTotalPaid,
+        getReferenceMonthPaidAmount,
+        isReferenceMonthLocked,
+        getLoggedSalaryReferenceMonths,
         refreshSalaryPayments,
         deleteSalaryPayment,
         clearAllSalaryPayments,
