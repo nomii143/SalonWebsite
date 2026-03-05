@@ -181,11 +181,21 @@ const Reports = () => {
 
   return currentTotal;
 };
-      const fetchData = async (t: string) => {
-        const fetchType = t === "Daily Expenses" ? "Expenses" : t;
+      type ReportQueryType =
+        | "Stock In"
+        | "Stock Out"
+        | "Sales"
+        | "Vendor Payments"
+        | "All Items"
+        | "Expenses"
+        | "Inventory";
+
+      const fetchData = async (t: ReportQueryType | "Daily Expenses") => {
+        const fetchType: ReportQueryType = t === "Daily Expenses" ? "Expenses" : t;
+        const selectedRange: TimeRange = timeRange || "daily";
         return await window.electronAPI.getReportData({
           type: fetchType,
-          range: timeRange,
+          range: selectedRange,
           startDate: finalStartISO,
           endDate: finalEndISO,
           category: null
@@ -193,154 +203,186 @@ const Reports = () => {
       };
 
       const generateStaffSalaryReport = () => {
-        console.log("[Reports] Generating staff salary report");
-        console.log("[Reports] Total salary payments available:", salaryPayments.length);
-        console.log("[Reports] All payments:", salaryPayments);
-        
-        const groupedByMonth = new Map<string, any[]>();
+        const parseDeductionFromNotes = (notes?: string) => {
+          if (!notes) return 0;
+          const match = notes.match(/(Loan\s*Deduction|Advance\s*Adjustment):\s*Rs\s*([\d,]+)/i);
+          if (!match) return 0;
+          const value = Number(String(match[2]).replace(/,/g, ""));
+          return Number.isFinite(value) ? value : 0;
+        };
 
-        // Group payments by month
-        salaryPayments.forEach(payment => {
-          const paymentDate = new Date(payment.date);
-          const monthKey = `${paymentDate.getFullYear()}-${String(paymentDate.getMonth() + 1).padStart(2, '0')}`;
-          
-          // Only include payments within the selected date range
-          if (paymentDate >= new Date(finalStartISO) && paymentDate <= new Date(finalEndISO)) {
-            console.log("[Reports] Including payment in report:", payment.id, payment.staffName, payment.paymentType, payment.amount);
-            if (!groupedByMonth.has(monthKey)) {
-              groupedByMonth.set(monthKey, []);
-            }
-            groupedByMonth.get(monthKey)?.push(payment);
+        const getReferenceMonth = (payment: { salaryForMonth?: string; date: string }) => {
+          if (payment.salaryForMonth && /^\d{4}-\d{2}$/.test(payment.salaryForMonth)) {
+            return payment.salaryForMonth;
           }
+          const d = new Date(payment.date);
+          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+        };
+
+        const rangeStart = new Date(finalStartISO);
+        const rangeEnd = new Date(finalEndISO);
+        const monthSet = new Set<string>();
+        const cursor = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), 1);
+        const endMonthStart = new Date(rangeEnd.getFullYear(), rangeEnd.getMonth(), 1);
+        while (cursor.getTime() <= endMonthStart.getTime()) {
+          monthSet.add(`${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`);
+          cursor.setMonth(cursor.getMonth() + 1);
+        }
+
+        const paymentsInRange = salaryPayments.filter((payment) => {
+          const refMonth = getReferenceMonth(payment);
+          return monthSet.has(refMonth);
         });
-        
-        console.log("[Reports] Grouped by month:", Array.from(groupedByMonth.entries()).map(([k, v]) => ({ month: k, count: v.length })));
 
-        // Generate report for each month in the range
-        Array.from(groupedByMonth.entries()).sort().forEach(([monthKey, monthPayments]) => {
-          const lastAuto = (doc as any).lastAutoTable;
-          let startY = lastAuto && lastAuto.finalY ? lastAuto.finalY + 18 : 42;
+        const groupedByMonth = new Map<string, typeof salaryPayments>();
+        paymentsInRange.forEach((payment) => {
+          const monthKey = getReferenceMonth(payment);
+          if (!groupedByMonth.has(monthKey)) groupedByMonth.set(monthKey, [] as any);
+          groupedByMonth.get(monthKey)?.push(payment);
+        });
 
-          if (startY > 240) { doc.addPage(); startY = 20; }
+        const getOpeningDebt = (staffId: string, currentMonthKey: string) => {
+          const prior = salaryPayments
+            .filter((p) => p.staffId === staffId)
+            .filter((p) => getReferenceMonth(p) < currentMonthKey);
 
-          const [year, month] = monthKey.split('-');
-          const monthName = new Date(parseInt(year), parseInt(month) - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+          const totalAdvance = prior
+            .filter((p) => p.paymentType === "advance")
+            .reduce((sum, p) => sum + Number(p.amount || 0), 0);
 
-          // Month heading
-          doc.setFontSize(13);
-          doc.setTextColor(0);
-          doc.setFont("helvetica", "bold");
-          doc.text(`Staff Salary - ${monthName}`, 14, startY);
+          const totalDeducted = prior
+            .filter((p) => p.paymentType === "full")
+            .reduce((sum, p) => sum + parseDeductionFromNotes(p.notes), 0);
 
-          // Group by staff
-          const staffPaymentMap = new Map<string, any[]>();
-          monthPayments.forEach(p => {
-            if (!staffPaymentMap.has(p.staffId)) {
-              staffPaymentMap.set(p.staffId, []);
+          return Math.max(0, totalAdvance - totalDeducted);
+        };
+
+        Array.from(groupedByMonth.entries())
+          .sort(([a], [b]) => a.localeCompare(b))
+          .forEach(([monthKey, monthPayments]) => {
+            const lastAuto = (doc as any).lastAutoTable;
+            let startY = lastAuto && lastAuto.finalY ? lastAuto.finalY + 16 : 42;
+            if (startY > 240) {
+              doc.addPage();
+              startY = 20;
             }
-            staffPaymentMap.get(p.staffId)?.push(p);
-          });
 
-          // Create table data with two-line format (header + sub-details)
-          const headers = ["Date", "Staff Name", "Payment Type", "Amount", "Details"];
-          const tableBody: any[] = [];
-          let monthTotal = 0;
-          let staffCount = 0;
-
-          staffPaymentMap.forEach((payments, staffId) => {
-            const staffName = payments[0].staffName;
-            console.log(`[Reports] Processing staff: ${staffName}, ${payments.length} payment(s)`);
-            
-            // Sort payments: full salary first, then advances
-            const sortedPayments = payments.sort((a, b) => {
-              if (a.paymentType === 'full' && b.paymentType !== 'full') return -1;
-              if (a.paymentType !== 'full' && b.paymentType === 'full') return 1;
-              return new Date(a.date).getTime() - new Date(b.date).getTime();
+            const [y, m] = monthKey.split("-").map(Number);
+            const monthName = new Date(y, m - 1).toLocaleDateString("en-US", {
+              month: "long",
+              year: "numeric",
             });
 
-            console.log(`[Reports] Sorted payments for ${staffName}:`, sortedPayments.map(p => ({ type: p.paymentType, amount: p.amount })));
+            doc.setFontSize(13);
+            doc.setTextColor(0);
+            doc.setFont("helvetica", "bold");
+            doc.text(`Payroll Report - ${monthName}`, 14, startY);
 
-            // Process first payment (main line) with staff name and date
-            const firstPayment = sortedPayments[0];
-            const paymentDate = new Date(firstPayment.date).toLocaleDateString('en-GB', { 
-              day: '2-digit', 
-              month: 'short', 
-              year: 'numeric' 
+            const byStaff = new Map<string, typeof salaryPayments>();
+            monthPayments.forEach((payment) => {
+              if (!byStaff.has(payment.staffId)) byStaff.set(payment.staffId, [] as any);
+              byStaff.get(payment.staffId)?.push(payment);
             });
-            
-            const firstDetails = firstPayment.paymentType === 'full' 
-              ? 'Full Salary Payment' 
-              : `Advance Payment (${firstPayment.numberOfMonths || 1} month${firstPayment.numberOfMonths && firstPayment.numberOfMonths > 1 ? 's' : ''})`;
 
-            monthTotal += firstPayment.amount;
-            staffCount++;
+            byStaff.forEach((staffMonthPayments, staffId) => {
+              const first = staffMonthPayments[0];
+              const staffName = first?.staffName || "Unknown";
+              const staffProfile = staff.find((s) => s.id === staffId);
+              const monthlySalary = Number(staffProfile?.monthlySalary || 0);
 
-            console.log(`[Reports] Adding main line for ${staffName}: ${firstPayment.paymentType} Rs. ${firstPayment.amount}`);
-            tableBody.push([
-              paymentDate,
-              staffName,
-              firstPayment.paymentType === 'full' ? 'Full Salary' : 'Advance',
-              `Rs. ${firstPayment.amount.toLocaleString()}`,
-              firstDetails
-            ]);
+              const openingBalance = getOpeningDebt(staffId, monthKey);
+              const newAdvance = staffMonthPayments
+                .filter((p) => p.paymentType === "advance")
+                .reduce((sum, p) => sum + Number(p.amount || 0), 0);
+              const deductedAmount = staffMonthPayments
+                .filter((p) => p.paymentType === "full")
+                .reduce((sum, p) => sum + parseDeductionFromNotes(p.notes), 0);
 
-            // Add remaining payments as separate rows with full details (showing multiple transactions in same month)
-            for (let i = 1; i < sortedPayments.length; i++) {
-              const payment = sortedPayments[i];
-              const additionalPaymentDate = new Date(payment.date).toLocaleDateString('en-GB', { 
-                day: '2-digit', 
-                month: 'short', 
-                year: 'numeric' 
-              });
-              const details = payment.paymentType === 'full' 
-                ? 'Full Salary Payment' 
-                : `Advance Payment (${payment.numberOfMonths || 1} month${payment.numberOfMonths && payment.numberOfMonths > 1 ? 's' : ''})`;
+              const fullPayment = staffMonthPayments.find((p) => p.paymentType === "full");
+              const hasEarlyPayout = Boolean(
+                fullPayment && (fullPayment.notes || "").includes("Early Salary Payout")
+              );
+              const paymentStatus = fullPayment
+                ? hasEarlyPayout
+                  ? "Full Month Early Payout"
+                  : "Salary with Debt Reduction"
+                : "No Salary Payout";
 
-              monthTotal += payment.amount;
+              const cashHandover = Math.max(0, monthlySalary - deductedAmount);
+              const closingBalance = Math.max(0, openingBalance + newAdvance - deductedAmount);
 
-              console.log(`[Reports] Adding additional transaction for ${staffName}: ${payment.paymentType} Rs. ${payment.amount}`);
-              tableBody.push([
-                additionalPaymentDate, // Show date for each transaction
-                `  ${staffName}`, // Indent staff name with spaces
-                payment.paymentType === 'full' ? 'Full Salary' : 'Advance',
-                `Rs. ${payment.amount.toLocaleString()}`,
-                details
-              ]);
-            }
-            
-            console.log(`[Reports] Total lines added for ${staffName}: ${sortedPayments.length}`);
-          });
+              const summaryRows = [
+                ["Basic Salary", `Rs. ${monthlySalary.toLocaleString()}`],
+                ["Payment Status", paymentStatus],
+                ["Opening Debt Balance", `Rs. ${openingBalance.toLocaleString()}`],
+                ["New Loan Taken", `Rs. ${newAdvance.toLocaleString()}`],
+                ["Debt Deduction (Kattoti)", `Rs. ${deductedAmount.toLocaleString()}`],
+                ["Total Cash Handover", `Rs. ${cashHandover.toLocaleString()}`],
+                ["Remaining Debt (Baqi Karza)", `Rs. ${closingBalance.toLocaleString()}`],
+              ];
 
-          console.log(`[Reports] Total table body rows: ${tableBody.length}`);
-
-          autoTable(doc, {
-            startY: startY + 5,
-            head: [headers],
-            body: tableBody,
-            showFoot: 'lastPage',
-            foot: [[`Total Staff Paid: ${staffCount}`, "", "", `Rs. ${monthTotal.toLocaleString()}`, "Total Amount"]],
-            theme: 'striped',
-            headStyles: { fillColor: [40, 80, 120], fontSize: 10, halign: 'left', valign: 'middle' },
-            bodyStyles: { valign: 'middle' },
-            didParseCell: (data) => {
-              // Right-align amount column
-              if (data.column.index === 3) {
-                data.cell.styles.halign = 'right';
+              const beforeSummary = (doc as any).lastAutoTable;
+              let staffStartY = beforeSummary && beforeSummary.finalY ? beforeSummary.finalY + 10 : startY + 6;
+              if (staffStartY > 235) {
+                doc.addPage();
+                staffStartY = 20;
               }
-            },
-            footStyles: { fillColor: [220, 220, 220], textColor: [0, 0, 0], fontStyle: 'bold', valign: 'middle' },
-            styles: { fontSize: 9, cellPadding: 4, valign: 'middle' },
+
+              doc.setFontSize(11);
+              doc.setFont("helvetica", "bold");
+              doc.text(`Staff: ${staffName}`, 14, staffStartY);
+
+              autoTable(doc, {
+                startY: staffStartY + 2,
+                head: [["Description", "Amount"]],
+                body: summaryRows,
+                theme: "striped",
+                headStyles: { fillColor: [34, 88, 120], fontSize: 9 },
+                styles: { fontSize: 8.5, cellPadding: 3 },
+                didParseCell: (data) => {
+                  if (data.column.index === 1 && data.section !== "head") {
+                    data.cell.styles.halign = "right";
+                  }
+                },
+              });
+
+              const txRows = staffMonthPayments
+                .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+                .map((p) => {
+                  const txType = p.paymentType === "advance" ? "Advance" : "Salary";
+                  return [
+                    formatDate(p.date),
+                    `Rs. ${Number(p.amount || 0).toLocaleString()}`,
+                    txType,
+                  ];
+                });
+
+              autoTable(doc, {
+                startY: (doc as any).lastAutoTable.finalY + 3,
+                head: [["Date", "Amount", "Type"]],
+                body: txRows.length > 0 ? txRows : [["-", "Rs. 0", "No Transactions"]],
+                theme: "grid",
+                headStyles: { fillColor: [80, 80, 80], fontSize: 8.5 },
+                styles: { fontSize: 8, cellPadding: 2.5 },
+                didParseCell: (data) => {
+                  if (data.column.index === 1 && data.section !== "head") {
+                    data.cell.styles.halign = "right";
+                  }
+                },
+              });
+            });
           });
-        });
 
         if (groupedByMonth.size === 0) {
           const lastAuto = (doc as any).lastAutoTable;
           let startY = lastAuto && lastAuto.finalY ? lastAuto.finalY + 15 : 42;
-          if (startY > 240) { doc.addPage(); startY = 20; }
-          
+          if (startY > 240) {
+            doc.addPage();
+            startY = 20;
+          }
           doc.setFontSize(12);
           doc.setTextColor(100);
-          doc.text("No salary payments found for the selected period.", 14, startY);
+          doc.text("No payroll records found for the selected period.", 14, startY);
         }
       };
 
@@ -406,7 +448,7 @@ const Reports = () => {
         generateStaffSalaryReport();
 
       } else {
-        const data = await fetchData(reportType);
+        const data = await fetchData(reportType as Exclude<ReportType, "Staff Salary">);
         const mode = (reportType === "Stock In" || reportType === "Stock Out") ? "stock" : (reportType === "Sales" ? "sale" : (reportType === "Vendor Payments" ? "vendor" : "expense"));
         renderTable(`${reportType} Report`, data, mode);
       }

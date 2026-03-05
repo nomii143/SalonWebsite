@@ -15,6 +15,7 @@ import StaffSalaries from "./pages/StaffSalaries";
 import PaySalary from "./pages/PaySalary";
 import AddStaff from "./pages/AddStaff";
 import Reports from "./pages/Reports";
+import PayrollReport from "./pages/PayrollReport";
 import VendorPayments from "./pages/Vender";
 import NotFound from "./pages/NotFound";
 
@@ -40,6 +41,7 @@ const App = () => (
               <Route path="/pay-salary" element={<PaySalary />} />
               <Route path="/add-staff" element={<AddStaff />} />
               <Route path="/reports" element={<Reports />} />
+              <Route path="/payroll-report" element={<PayrollReport />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </AppLayout>

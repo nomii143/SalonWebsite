@@ -12,7 +12,8 @@ import {
   ChevronDown,
   CreditCard,
   PlusCircle,
-  Users
+  Users,
+  BarChart3
 } from "lucide-react";
 
 // Nav items - "Sales" is now its own independent manual entry page
