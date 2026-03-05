@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, Wallet, Info, Loader2, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Wallet, Info, Loader2, AlertTriangle, DollarSign, AlertCircle, Wrench, Lightbulb, TrendingDown } from "lucide-react";
 import { toast } from "sonner";
 import { getTodayDateString } from "@/lib/utils";
 
@@ -24,7 +24,7 @@ export default function PaySalaryPage() {
   const [selectedStaffId, setSelectedStaffId] = useState("");
   const [payType, setPayType] = useState<"advance" | "full" | null>(null);
   const [amount, setAmount] = useState("");
-  const [advanceAdjustmentAmount, setAdvanceAdjustmentAmount] = useState("");
+  const [debtAdjustmentAmount, setDebtAdjustmentAmount] = useState("");
   const [date, setDate] = useState(getTodayDateString());
   const [numberOfMonths, setNumberOfMonths] = useState(1);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -214,6 +214,43 @@ export default function PaySalaryPage() {
     return Math.max(0, fullSalary - advancesPaid);
   };
 
+  // Get TOTAL advance taken (full amount, NOT divided by months)
+  const getTotalAdvanceTaken = (staffId: string, upTo: Date = new Date()) => {
+    const upToTimestamp = upTo.getTime();
+    return salaryPayments
+      .filter((p) => p.staffId === staffId && p.paymentType === "advance")
+      .filter((p) => {
+        const paymentDate = new Date(p.date);
+        return !Number.isNaN(paymentDate.getTime()) && paymentDate.getTime() <= upToTimestamp;
+      })
+      .reduce((total, p) => total + p.amount, 0);
+  };
+
+  // Adjustment is only what admin manually enters in "Adjust Advance Amount"
+  // It is stored in notes as: "Advance Adjustment: Rs X"
+  const getTotalAdvanceAdjustments = (staffId: string, upTo: Date = new Date()) => {
+    const upToTimestamp = upTo.getTime();
+    return salaryPayments
+      .filter((p) => p.staffId === staffId && p.paymentType === "full")
+      .filter((p) => {
+        const paymentDate = new Date(p.date);
+        return !Number.isNaN(paymentDate.getTime()) && paymentDate.getTime() <= upToTimestamp;
+      })
+      .reduce((total, p) => {
+        const notes = p.notes || "";
+        const match = notes.match(/Advance\s*Adjustment:\s*Rs\s*([\d,]+)/i);
+        const adjustment = match ? Number(match[1].replace(/,/g, "")) : 0;
+        return total + (Number.isFinite(adjustment) ? adjustment : 0);
+      }, 0);
+  };
+
+  // Outstanding advance due must only change when user manually enters adjustment
+  const getOutstandingAdvanceDue = (staffId: string, upTo: Date = new Date()) => {
+    const totalAdvance = getTotalAdvanceTaken(staffId, upTo);
+    const totalAdjusted = getTotalAdvanceAdjustments(staffId, upTo);
+    return Math.max(0, totalAdvance - totalAdjusted);
+  };
+
   // Get list of months to be paid
   const getMonthsToPay = (startDate: Date, numMonths: number) => {
     const months = [];
@@ -264,9 +301,6 @@ export default function PaySalaryPage() {
     return currentRemaining + previousDue;
   };
 
-  // Removed - use getAdvanceTotalWithPreviousDue directly instead
-  // getAdvanceTotalWithPreviousDue already includes current + previous due + future months
-
   const handleNumberOfMonthsChange = (value: string) => {
     const numMonths = parseInt(value);
     setNumberOfMonths(numMonths);
@@ -293,11 +327,17 @@ export default function PaySalaryPage() {
 
     setPayType(type);
     
-    // Full Salary: manual settlement with suggested current net due
+    // Full Salary: show monthly salary, default adjustment to 0
     if (type === "full" && selectedStaffId) {
-      const suggestedAmount = Math.max(0, getStaffRunningBalance(selectedStaffId, new Date(date)));
-      setAmount(String(suggestedAmount));
-      setAdvanceAdjustmentAmount(String(suggestedAmount));
+      const selectedStaff = staff.find(s => s.id === selectedStaffId);
+      const monthlySalary = selectedStaff?.monthlySalary || 0;
+      
+      // Amount = Monthly Salary (what they earn this month)
+      setAmount(String(monthlySalary));
+      
+      // STRICT MANUAL: Default adjustment is always 0
+      // User must manually entered adjustment amount
+      setDebtAdjustmentAmount("0");
     } else if (type === "advance" && selectedStaffId) {
       // Advance: allow any amount with simple default monthly salary
       setNumberOfMonths(1);
@@ -305,7 +345,7 @@ export default function PaySalaryPage() {
       if (selectedStaff?.monthlySalary) {
         setAmount(String(selectedStaff.monthlySalary));
       }
-      setAdvanceAdjustmentAmount("");
+      setDebtAdjustmentAmount("");
     }
   };
 
@@ -316,11 +356,16 @@ export default function PaySalaryPage() {
     
      // Check status for the selected staff and current date
      const paymentDate = new Date(date);
+     
      checkStatus(staffId, paymentDate);
    
-    // If Full Salary is already selected, suggest current due (editable)
+    // If Full Salary is already selected, recalculate for new staff
     if (payType === "full" && selectedStaff?.monthlySalary) {
-      setAmount(String(Math.max(0, getStaffRunningBalance(staffId, new Date(date)))));
+      const monthlySalary = selectedStaff.monthlySalary;
+      setAmount(String(monthlySalary));
+      
+      // STRICT MANUAL: Default adjustment is always 0
+      setDebtAdjustmentAmount("0");
     } else if (payType === "advance" && selectedStaff?.monthlySalary) {
       setAmount(String(selectedStaff.monthlySalary));
     }
@@ -329,17 +374,21 @@ export default function PaySalaryPage() {
   const handleDateChange = (newDate: string) => {
     setDate(newDate);
     const paymentDate = new Date(newDate);
+    
     checkStatus(selectedStaffId, paymentDate);
     
-    // Recalculate suggested amount when date changes
+    // Recalculate when date changes
     if (payType === "full" && selectedStaffId) {
-      const suggestedAmount = Math.max(0, getStaffRunningBalance(selectedStaffId, paymentDate));
-      setAmount(String(suggestedAmount));
-      setAdvanceAdjustmentAmount(String(suggestedAmount));
+      const selectedStaff = staff.find(s => s.id === selectedStaffId);
+      const monthlySalary = selectedStaff?.monthlySalary || 0;
+      setAmount(String(monthlySalary));
+      
+      // STRICT MANUAL: Default adjustment is always 0
+      setDebtAdjustmentAmount("0");
     } else if (payType === "advance" && selectedStaffId) {
       const selectedStaff = staff.find(s => s.id === selectedStaffId);
       setAmount(String(selectedStaff?.monthlySalary || 0));
-      setAdvanceAdjustmentAmount("");
+      setDebtAdjustmentAmount("");
     }
   };
 
@@ -391,20 +440,53 @@ export default function PaySalaryPage() {
     }
 
     // Flexible ledger: allow any manual amount and unlimited advances
+    const debtAdjustment = Number(debtAdjustmentAmount) || 0;
+    
+    // Validation for Full Salary with debt deduction: Check if adjustment exceeds outstanding advance due
+    if (payType === "full" && debtAdjustment > 0) {
+      const totalDebt = getOutstandingAdvanceDue(selectedStaffId, paymentDate);
+      
+      if (debtAdjustment > totalDebt) {
+        setIsProcessing(false);
+        return toast.error(`Adjustment amount (Rs ${debtAdjustment.toLocaleString()}) cannot exceed available advance (Rs ${totalDebt.toLocaleString()})`);
+      }
+    }
+    
+    const netPayout = payType === "full" ? Math.max(0, paymentAmount - debtAdjustment) : paymentAmount;
+    
+    // Keep full salary recorded for salary ledger; adjustment remains explicit in notes
+    const amountToRecord = payType === "full" ? paymentAmount : paymentAmount;
+    
+    // Determine payment classification and notes based on debtAdjustment value
+    let paymentNotes = "";
+    if (payType === "full") {
+      if (debtAdjustment === 0) {
+        // Early Salary Payout: Full monthly salary paid in advance (next month or same month)
+        // This is NOT a loan or debt creation - it's simply an early payment of earned salary
+        paymentNotes = `Early Salary Payout: Rs ${paymentAmount.toLocaleString()} | Full monthly salary paid early. No debt created. Staff Receives: Rs ${netPayout.toLocaleString()}`;
+      } else {
+        // Salary with Debt Reduction: Full salary minus deduction from existing advance/loan
+        // This reduces outstanding debt balance
+        paymentNotes = `Salary with Debt Reduction: Rs ${paymentAmount.toLocaleString()} | Loan Deduction: Rs ${debtAdjustment.toLocaleString()} | Staff Receives: Rs ${netPayout.toLocaleString()}`;
+      }
+    } else {
+      // Advance Loan: Creates debt obligation
+      paymentNotes = `Advance Loan (creates debt): Rs ${paymentAmount.toLocaleString()}${numberOfMonths > 1 ? ` for ${numberOfMonths} months` : ''}`;
+    }
+    
     await addSalaryPayment({
       staffId: selectedStaffId,
       staffName: selectedStaff.fullName,
-      amount: paymentAmount,
+      amount: amountToRecord,
       paymentType: payType === "full" ? "full" : "advance",
       date: new Date().toISOString(),
       salaryForMonth,
       numberOfMonths: payType === "advance" ? numberOfMonths : undefined,
-      notes: payType === "full"
-        ? `Salary settlement${advanceAdjustmentAmount ? ` | adjustment: Rs ${Number(advanceAdjustmentAmount || 0).toLocaleString()}` : ""}`
-        : "Advance payment"
+      notes: paymentNotes
     });
     const monthName = paymentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-    toast.success(`Payment of Rs ${paymentAmount.toLocaleString()} recorded for ${monthName}`);
+    const displayAmount = payType === "full" ? netPayout : paymentAmount;
+    toast.success(`Payment of Rs ${displayAmount.toLocaleString()} recorded for ${monthName}`);
     
     // Delay to ensure state is fully updated and persisted before navigation
     setTimeout(() => {
@@ -648,7 +730,7 @@ export default function PaySalaryPage() {
                       >
                         <div className="text-center">
                           <div className="font-bold text-lg mb-1">Full Salary</div>
-                          <div className="text-xs text-muted-foreground">Pay complete monthly salary</div>
+                          <div className="text-xs text-muted-foreground">Pay this month's standard salary</div>
                           {monthLocked && (
                             <div className="text-xs text-emerald-700 font-semibold mt-1">Fully Paid</div>
                           )}
@@ -668,16 +750,49 @@ export default function PaySalaryPage() {
                       >
                         <div className="text-center">
                           <div className="font-bold text-lg mb-1">Advance Payment</div>
-                          <div className="text-xs text-muted-foreground">Pay partial amount in advance</div>
+                          <div className="text-xs text-muted-foreground">Give money as loan </div>
                         </div>
                       </button>
                     </div>
-                    <p className="text-xs text-emerald-700 mt-2 text-center">
-                      Running balance: Rs {Math.abs(getStaffRunningBalance(selectedStaffId, paymentDate)).toLocaleString()} ({getStaffRunningBalance(selectedStaffId, paymentDate) >= 0 ? 'Salary pending' : 'Advance taken by staff'})
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-1 text-center">
-                      Month progress: Paid Rs {monthPaid.toLocaleString()} / Rs {monthlySalary.toLocaleString()} {monthLocked ? '(Fully Paid)' : ''}
-                    </p>
+                    {/* Staff Financial Overview - H4 Style */}
+{selectedStaffId && (
+  <div className="mt-4 p-4 bg-white border-2 border-slate-100 rounded-xl shadow-sm">
+    <div className="space-y-4">
+      
+      {/* Monthly Salary Row */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className="p-1.5 bg-blue-50 rounded-lg">
+            <Wallet className="h-4 w-4 text-blue-600" />
+          </div>
+          <h4 className="text-sm font-bold text-slate-700 uppercase tracking-tight">
+            Monthly Salary
+          </h4>
+        </div>
+        <h4 className="text-lg font-black text-slate-900">
+          Rs {monthlySalary.toLocaleString()}
+        </h4>
+      </div>
+
+      {/* Advance Dues Row - Simple Display */}
+      <div className="flex items-center justify-between px-3 py-2 bg-amber-50 rounded-lg border-2 border-amber-300">
+        <div className="flex items-center gap-2">
+          <AlertCircle className="h-4 w-4 text-amber-600" />
+          <h4 className="text-xs font-bold text-amber-700 uppercase tracking-wider">
+            Outstanding Loan Debt
+          </h4>
+        </div>
+        <h4 className={`text-lg font-bold ${ getOutstandingAdvanceDue(selectedStaffId, paymentDate) > 0 ? 'text-amber-700' : 'text-slate-400'}`}>
+          {getOutstandingAdvanceDue(selectedStaffId, paymentDate) > 0
+            ? `Rs ${getOutstandingAdvanceDue(selectedStaffId, paymentDate).toLocaleString()}`
+            : 'No Debt'}
+        </h4>
+      </div>
+    
+
+    </div>
+  </div>
+)}
                   </div>
                 );
               })()}
@@ -689,57 +804,19 @@ export default function PaySalaryPage() {
             const paymentDate = new Date(date);
             const selectedStaff = staff.find(s => s.id === selectedStaffId);
             const monthlySalary = selectedStaff?.monthlySalary || 0;
-            const totalEarned = getStaffTotalEarned(selectedStaffId, paymentDate);
-            const totalPaid = getStaffTotalPaid(selectedStaffId, paymentDate);
-            const netBalance = getStaffRunningBalance(selectedStaffId, paymentDate);
-            const isBalanceDue = netBalance >= 0;
+            const totalAdvanceTaken = getTotalAdvanceTaken(selectedStaffId);
             
             const monthName = paymentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
             // Show payment status for this month
             return (
               <>
-                {/* Payment Status Card */}
-                <div className={`rounded-xl p-5 border-2 ${
-                  isBalanceDue 
-                    ? 'bg-green-50 border-green-300' 
-                    : totalPaid > totalEarned
-                    ? 'bg-blue-50 border-blue-300'
-                    : 'bg-gray-50 border-gray-300'
-                }`}>
-                  <div className="text-sm font-semibold mb-3">
-                    Payment Status for {monthName}
-                  </div>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Monthly Salary:</span>
-                      <span className="font-semibold">Rs {monthlySalary.toLocaleString()}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Total Salaries Earned:</span>
-                      <span className="font-semibold">Rs {totalEarned.toLocaleString()}</span>
-                    </div>
-                    {totalPaid > 0 && (
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Advance Already Taken:</span>
-                        <span className="font-semibold text-red-600">Rs {totalPaid.toLocaleString()}</span>
-                      </div>
-                    )}
-                    <div className="flex justify-between pt-2 border-t">
-                      <span className={`font-semibold ${!isBalanceDue ? 'text-red-700' : 'text-green-700'}`}>
-                        {!isBalanceDue ? 'Total Advance Taken:' : 'Salary Pending:'}
-                      </span>
-                      <span className={`font-bold text-lg ${!isBalanceDue ? 'text-red-600' : 'text-green-600'}`}>
-                        Rs {Math.abs(netBalance).toLocaleString()}
-                      </span>
-                    </div>
-                  </div>
-                </div>
+            
 
-              {/* Number of Months - ONLY for Advance */}
+              {/* Number of Months - ONLY for Advance Loan */}
               {payType === "advance" && (
                 <div className="space-y-2">
-                  <Label className="text-base font-semibold">Number of Months</Label>
+                  <Label className="text-base font-semibold">Loan Reference Period (Months)</Label>
                   <Select 
                     value={String(numberOfMonths)} 
                     onValueChange={handleNumberOfMonthsChange}
@@ -756,8 +833,8 @@ export default function PaySalaryPage() {
                     </SelectContent>
                   </Select>
                   {numberOfMonths > 1 && (
-                    <p className="text-xs text-blue-600 font-medium">
-                      This will be saved as one transaction today with a reference note for {numberOfMonths} months.
+                    <p className="text-xs text-orange-600 font-medium">
+                      ⚠️ Note: This is for tracking only (e.g., "3-month loan"). The full amount creates debt today.
                     </p>
                   )}
                 </div>
@@ -765,62 +842,162 @@ export default function PaySalaryPage() {
 
 
 
-              {/* Amount Field */}
-              {payType === "full" && (
-                <div className="space-y-2">
-                  <Label className="text-base font-semibold">Advance Adjustment</Label>
-                  <Input
-                    type="number"
-                    min="0"
-                    value={advanceAdjustmentAmount}
-                    onChange={(e) => {
-                      setAdvanceAdjustmentAmount(e.target.value);
-                      setAmount(e.target.value);
-                    }}
-                    placeholder="How much of the total debt/advance do you want to adjust/pay now?"
-                    className="h-12 text-base"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    This amount will be recorded as the salary settlement for the selected reference month.
-                  </p>
-                  {(() => {
-                    const monthlySalary = staff.find(s => s.id === selectedStaffId)?.monthlySalary || 0;
-                    const paidInSelectedMonth = getTotalPaidInMonth(selectedStaffId, new Date(date));
-                    const previousDue = getPreviousDueBalance(selectedStaffId, new Date(date));
-                    const adjustmentValue = Number(advanceAdjustmentAmount) || 0;
-                    const extraAdvance = Math.max(0, adjustmentValue - monthlySalary);
+              {/* Full Salary Payment - Flexible Advance Recovery */}
+              {payType === "full" && (() => {
+                const selectedStaff = staff.find(s => s.id === selectedStaffId);
+                const monthlySalary = selectedStaff?.monthlySalary || 0;
+                const paymentDate = new Date(date);
+                
+                const totalDebt = getOutstandingAdvanceDue(selectedStaffId, paymentDate);
+                const debtAdjustment = Number(debtAdjustmentAmount) || 0;
+                const netPayout = Math.max(0, monthlySalary - debtAdjustment);
+                
+                return (
+                  <div className="space-y-4">
+             
 
-                    return adjustmentValue > 0 ? (
-                      <div className="space-y-1 text-xs font-medium">
-                        <p className="text-amber-700">Old (Previous Due): Rs {previousDue.toLocaleString()}</p>
-                        <p className="text-green-700">Full Salary Payment: Rs {monthlySalary.toLocaleString()}</p>
-                        {extraAdvance > 0 && (
-                          <p className="text-red-700">Advance Taken: Rs {extraAdvance.toLocaleString()}</p>
-                        )}
-                        <p className="text-blue-700 font-semibold">Total Payment: Rs {adjustmentValue.toLocaleString()}</p>
+                    {/* Current Advance Display */}
+                    {totalDebt > 0 && (
+                      <div className="bg-red-50 border-2 border-red-400 rounded-xl p-4">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-semibold text-red-800 flex items-center gap-2">
+                            <AlertCircle className="w-5 h-5" /> Outstanding Advance Loan Debt:
+                          </span>
+                          <span className="text-3xl font-bold text-red-700">
+                            Rs {totalDebt.toLocaleString()}
+                          </span>
+                        </div>
+                        <p className="text-xs text-red-600 mt-2">
+                          Loan debt from previous advance payments. Leave deduction at 0 to pay full salary now (early payout) – debt remains. Or deduct from salary to reduce debt.
+                        </p>
                       </div>
-                    ) : null;
-                  })()}
-                </div>
-              )}
+                    )}
+
+                    {/* Manual Adjustment Input */}
+                    <div className="space-y-2">
+                      <Label className="text-base font-semibold text-blue-800 flex items-center gap-2">
+                        <Wrench className="w-4 h-4" /> Deduction from Existing Loan (Rs) - OPTIONAL
+                      </Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        max={totalDebt}
+                        value={debtAdjustmentAmount}
+                        onChange={(e) => setDebtAdjustmentAmount(e.target.value)}
+                        placeholder={`Leave at 0 for Early Payout • No debt created`}
+                        className="h-14 text-lg font-semibold border-2 border-blue-300"
+                      />
+                    <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-r-lg" role="alert">
+  <div className="flex items-start gap-2">
+    <Lightbulb className="w-4 h-4 text-blue-800 mt-0.5 flex-shrink-0" />
+    <div>
+      <p className="text-xs text-blue-800 font-bold uppercase tracking-wide">
+        ⚡ Early Payout vs Debt Reduction
+      </p>
+      <p className="text-xs text-blue-700 mt-2 leading-relaxed font-medium">
+        <strong>Leave at 0 = Early Salary Payout:</strong>
+        <br />
+        Staff gets full Rs {monthlySalary.toLocaleString()} for next month
+        <br />
+        No new debt created. Existing loan debt remains if any.
+      </p>
+      <p className="text-xs text-blue-700 mt-2 leading-relaxed font-medium">
+        <strong>Enter 1 to {totalDebt.toLocaleString()} = Debt Reduction:</strong>
+        <br />
+        Deduct from staff's existing loan/advance balance
+        <br />
+        Staff gets less cash after deduction
+      </p>
+    </div>
+  </div>
+</div>
+                    </div>
+
+                    {/* Net Payout Calculation - Live Update */}
+                    <div className={`border-3 rounded-xl p-5 shadow-lg ${debtAdjustment === 0 ? 'bg-gradient-to-r from-green-50 to-emerald-50 border-green-400' : 'bg-gradient-to-r from-yellow-50 to-amber-50 border-amber-400'}`}>
+                      <Label className={`text-sm font-semibold mb-3 flex items-center gap-2 ${debtAdjustment === 0 ? 'text-green-800' : 'text-amber-800'}`}><DollarSign className="w-4 h-4" /> {debtAdjustment === 0 ? '✓ EARLY SALARY PAYOUT' : 'SALARY WITH DEBT REDUCTION'} (Cash in Hand)</Label>
+                      <div className="space-y-2 text-sm">
+                        <div className="flex justify-between items-center">
+                          <span className="text-muted-foreground">Monthly Salary (Next Month):</span>
+                          <span className="font-semibold text-green-600">+ Rs {monthlySalary.toLocaleString()}</span>
+                        </div>
+                        {debtAdjustment > 0 && (
+                          <div className="flex justify-between items-center">
+                            <span className="text-muted-foreground">Loan Deduction:</span>
+                            <span className="font-semibold text-red-600">- Rs {debtAdjustment.toLocaleString()}</span>
+                          </div>
+                        )}
+                        <div className={`border-t-2 pt-2 mt-2 ${debtAdjustment === 0 ? 'border-green-300' : 'border-amber-300'}`}>
+                          <div className="flex justify-between items-center">
+                            <span className={`font-bold ${debtAdjustment === 0 ? 'text-green-900' : 'text-amber-900'}`}>Staff Receives:</span>
+                            <span className={`text-3xl font-extrabold ${debtAdjustment === 0 ? 'text-green-700' : 'text-amber-700'}`}>Rs {netPayout.toLocaleString()}</span>
+                          </div>
+                        </div>
+                        {debtAdjustment === 0 && (
+                          <p className="text-xs text-green-700 mt-3 font-medium">
+                            💡 Early Payout: Staff gets full next month's salary (Rs {monthlySalary.toLocaleString()}) – No debt created!
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Remaining Dues After Payment */}
+                    {totalDebt > 0 && (() => {
+                      const remainingDues = Math.max(0, totalDebt - debtAdjustment);
+                      const nextMonthDate = new Date(paymentDate);
+                      nextMonthDate.setMonth(nextMonthDate.getMonth() + 1);
+                      const nextMonthName = nextMonthDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+                      
+                      return (
+                        <div className="bg-orange-50 border-3 border-orange-400 rounded-xl p-5 shadow-lg">
+                          <div className="flex items-center justify-between mb-3">
+                            <span className="text-sm font-semibold text-orange-800 flex items-center gap-2">
+                              <TrendingDown className="w-4 h-4" /> Loan Debt After Payment:
+                            </span>
+                            <span className="text-3xl font-bold text-orange-700">
+                              Rs {remainingDues.toLocaleString()}
+                            </span>
+                          </div>
+                          <div className="bg-orange-100 rounded-lg p-3 border border-orange-300">
+                            <p className="text-xs text-orange-800 font-medium">
+                              {debtAdjustment === 0 
+                                ? `✓ Early Payout: No deduction made. Staff's loan debt remains unchanged at Rs ${totalDebt.toLocaleString()} → Carries to ${nextMonthName}`
+                                : `✓ Debt Reduced: After deducting Rs ${debtAdjustment.toLocaleString()}, remaining loan debt is Rs ${remainingDues.toLocaleString()} → Carries to ${nextMonthName}`
+                              }
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                );
+              })()}
 
               {payType === "advance" && (
               <div className="space-y-2">
-                <Label className="text-base font-semibold">Advance Amount (Rs)</Label>
+                <Label className="text-base font-semibold">Advance Payment Amount (Rs)</Label>
                 <Input 
                   type="number" 
                   min="1" 
                   value={amount} 
                   onChange={(e) => setAmount(e.target.value)} 
-                  placeholder="Auto-filled with suggested amount (editable)"
-                  className="h-14 text-lg font-semibold"
+                  placeholder="Enter loan amount (creates debt)"
+                  className="h-14 text-lg font-semibold border-2 border-orange-300"
                 />
+                <div className="bg-orange-50 border-l-4 border-orange-500 p-3 rounded-r-lg">
+                  <p className="text-xs text-orange-800 font-bold flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" />
+                    <strong>Advance payment = Debt:</strong> Money given before earning
+                  </p>
+                  <p className="text-xs text-orange-700 mt-1">
+                    This creates outstanding debt that must be recovered later via "Adjust Advance Amount" when paying Full Salary.
+                  </p>
+                </div>
                 <p className="text-xs text-blue-600 font-medium">
-                  Suggested starting amount: Rs {(staff.find(s => s.id === selectedStaffId)?.monthlySalary || 0).toLocaleString()} for {numberOfMonths} month{numberOfMonths > 1 ? 's' : ''}. You can enter any amount.
+                  💡 Suggested: Rs {(staff.find(s => s.id === selectedStaffId)?.monthlySalary || 0).toLocaleString()} for {numberOfMonths} month{numberOfMonths > 1 ? 's' : ''}. You can enter any amount.
                 </p>
                 {payType === "advance" && (() => {
                   const monthlySalary = staff.find(s => s.id === selectedStaffId)?.monthlySalary || 0;
-                  const paymentDate = new Date(date);
                   const referenceMonth = getReferenceMonthKey(date);
                   
                   // Get advance already taken in THIS reference month
@@ -839,16 +1016,15 @@ export default function PaySalaryPage() {
                   const newAdvanceValue = Number(amount) || 0;
                   
                   // Total advance after this payment
-                  const totalAfterNewAdvance = totalPaidSoFar + newAdvanceValue;
+                  const totalAfterNewAdvance = totalAdvanceTaken + newAdvanceValue;
 
                   return (
                     <div className="space-y-1 text-xs font-medium">
-                      <p className="text-red-700">Advance Already Taken (This Month): Rs {advanceInCurrentMonth.toLocaleString()}</p>
-                      <p className="text-red-700">Total Advance Already Taken: Rs {netAdvanceTaken.toLocaleString()}</p>
+                      <p className="text-red-700">Total Loan Debt Outstanding: Rs {totalAdvanceTaken.toLocaleString()}</p>
                       {newAdvanceValue > 0 && (
                         <>
-                          <p className="text-blue-700">New Advance Payment: Rs {newAdvanceValue.toLocaleString()}</p>
-                          <p className="text-orange-700 font-semibold">Total After Payment: Rs {totalAfterNewAdvance.toLocaleString()}</p>
+                          <p className="text-blue-700">New Loan Amount: Rs {newAdvanceValue.toLocaleString()}</p>
+                          <p className="text-orange-700 font-semibold">Total Debt After This Loan: Rs {totalAfterNewAdvance.toLocaleString()}</p>
                         </>
                       )}
                     </div>
@@ -864,8 +1040,17 @@ export default function PaySalaryPage() {
                 const canPayAdvance = payType === "advance" && Number(amount) > 0;
                 
                 const canProcess = (payType === "full" && canPayFull) || (payType === "advance" && canPayAdvance);
-                const isDisabled = !amount || Number(amount) <= 0 || !canProcess || isProcessing;
+                
+                // Check if adjustment exceeds advance
+                const debtAdjustment = Number(debtAdjustmentAmount) || 0;
+                const paymentDate = new Date(date);
+                const totalDebt = payType === "full" ? getOutstandingAdvanceDue(selectedStaffId, paymentDate) : 0;
+                const adjustmentExceedsAdvance = payType === "full" && debtAdjustment > totalDebt && totalDebt >= 0;
+                
+                const isDisabled = !amount || Number(amount) <= 0 || !canProcess || isProcessing || adjustmentExceedsAdvance;
 
+                const netPayout = payType === "full" ? Math.max(0, Number(amount) - Number(debtAdjustmentAmount || 0)) : Number(amount);
+                
                 return (
                   <div className="space-y-3">
                     <Button 
@@ -879,9 +1064,9 @@ export default function PaySalaryPage() {
                           Processing Payment...
                         </>
                       ) : payType === "full" ? (
-                        `Confirm Full Salary Payment: Rs ${amount || 0}`
+                        `Confirm Net Payout: Rs ${netPayout.toLocaleString()}`
                       ) : (
-                        `Confirm Advance Payment: Rs ${amount || 0}`
+                        `Confirm Loan: Rs ${amount || 0}`
                       )}
                     </Button>
                   </div>
