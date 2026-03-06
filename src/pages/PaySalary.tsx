@@ -441,10 +441,25 @@ export default function PaySalaryPage() {
 
     // Flexible ledger: allow any manual amount and unlimited advances
     const debtAdjustment = Number(debtAdjustmentAmount) || 0;
+    const currentMonthlySalary = selectedStaff.monthlySalary || 0;
     
     // Validation for Full Salary with debt deduction: Check if adjustment exceeds outstanding advance due
     if (payType === "full" && debtAdjustment > 0) {
       const totalDebt = getOutstandingAdvanceDue(selectedStaffId, paymentDate);
+
+      if (debtAdjustment > currentMonthlySalary) {
+        setIsProcessing(false);
+        return toast.error(
+          `Deduction amount (Rs ${debtAdjustment.toLocaleString()}) cannot exceed monthly salary (Rs ${currentMonthlySalary.toLocaleString()})`,
+        );
+      }
+
+      if (debtAdjustment > paymentAmount) {
+        setIsProcessing(false);
+        return toast.error(
+          `Deduction amount (Rs ${debtAdjustment.toLocaleString()}) cannot exceed salary payout amount (Rs ${paymentAmount.toLocaleString()})`,
+        );
+      }
       
       if (debtAdjustment > totalDebt) {
         setIsProcessing(false);
@@ -849,6 +864,7 @@ export default function PaySalaryPage() {
                 const paymentDate = new Date(date);
                 
                 const totalDebt = getOutstandingAdvanceDue(selectedStaffId, paymentDate);
+                const maxDeductionAllowed = Math.min(totalDebt, monthlySalary);
                 const debtAdjustment = Number(debtAdjustmentAmount) || 0;
                 const netPayout = Math.max(0, monthlySalary - debtAdjustment);
                 
@@ -881,11 +897,23 @@ export default function PaySalaryPage() {
                       <Input
                         type="number"
                         min="0"
-                        max={totalDebt}
+                        max={maxDeductionAllowed}
                         value={debtAdjustmentAmount}
-                        onChange={(e) => setDebtAdjustmentAmount(e.target.value)}
+                        onChange={(e) => {
+                          const nextValue = e.target.value;
+                          if (nextValue === "") {
+                            setDebtAdjustmentAmount("");
+                            return;
+                          }
+                          const parsed = Number(nextValue);
+                          if (!Number.isFinite(parsed)) {
+                            return;
+                          }
+                          const clamped = Math.max(0, Math.min(parsed, maxDeductionAllowed));
+                          setDebtAdjustmentAmount(String(clamped));
+                        }}
                         placeholder={`Leave at 0 for Early Payout • No debt created`}
-                        className="h-14 text-lg font-semibold border-2 border-blue-300"
+                        className="h-14 text-lg font-semibold border-2 border-blue-300 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                       />
                     <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-r-lg" role="alert">
   <div className="flex items-start gap-2">
@@ -902,7 +930,7 @@ export default function PaySalaryPage() {
         No new debt created. Existing loan debt remains if any.
       </p>
       <p className="text-xs text-blue-700 mt-2 leading-relaxed font-medium">
-        <strong>Enter 1 to {totalDebt.toLocaleString()} = Debt Reduction:</strong>
+        <strong>Enter 1 to {maxDeductionAllowed.toLocaleString()} = Debt Reduction:</strong>
         <br />
         Deduct from staff's existing loan/advance balance
         <br />
@@ -982,7 +1010,7 @@ export default function PaySalaryPage() {
                   value={amount} 
                   onChange={(e) => setAmount(e.target.value)} 
                   placeholder="Enter loan amount (creates debt)"
-                  className="h-14 text-lg font-semibold border-2 border-orange-300"
+                  className="h-14 text-lg font-semibold border-2 border-orange-300 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                 />
                 <div className="bg-orange-50 border-l-4 border-orange-500 p-3 rounded-r-lg">
                   <p className="text-xs text-orange-800 font-bold flex items-center gap-1">
@@ -1046,8 +1074,17 @@ export default function PaySalaryPage() {
                 const paymentDate = new Date(date);
                 const totalDebt = payType === "full" ? getOutstandingAdvanceDue(selectedStaffId, paymentDate) : 0;
                 const adjustmentExceedsAdvance = payType === "full" && debtAdjustment > totalDebt && totalDebt >= 0;
+                const adjustmentExceedsMonthlySalary = payType === "full" && debtAdjustment > monthlySalary;
+                const adjustmentExceedsPayoutAmount = payType === "full" && debtAdjustment > Number(amount || 0);
                 
-                const isDisabled = !amount || Number(amount) <= 0 || !canProcess || isProcessing || adjustmentExceedsAdvance;
+                const isDisabled =
+                  !amount ||
+                  Number(amount) <= 0 ||
+                  !canProcess ||
+                  isProcessing ||
+                  adjustmentExceedsAdvance ||
+                  adjustmentExceedsMonthlySalary ||
+                  adjustmentExceedsPayoutAmount;
 
                 const netPayout = payType === "full" ? Math.max(0, Number(amount) - Number(debtAdjustmentAmount || 0)) : Number(amount);
                 

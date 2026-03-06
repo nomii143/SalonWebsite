@@ -46,10 +46,49 @@ export default function StaffListPage() {
     deleteUser: deleteStaff,
     updateUser: updateStaff,
     salaryPayments,
-    getStaffRunningBalance,
     clearAllSalaryPayments,
   } = useData();
   const [editingStaff, setEditingStaff] = useState<StaffUser | null>(null);
+
+  const getReferenceMonthDate = (payment: (typeof salaryPayments)[number]) => {
+    if (payment.salaryForMonth && /^\d{4}-\d{2}$/.test(payment.salaryForMonth)) {
+      const [year, month] = payment.salaryForMonth.split("-").map(Number);
+      return new Date(year, month - 1, 1);
+    }
+    return new Date(payment.date);
+  };
+
+  const getOutstandingAdvanceAmount = (staffId: string) => {
+    const totalAdvanceTaken = salaryPayments
+      .filter((payment) => payment.staffId === staffId && payment.paymentType === "advance")
+      .reduce((sum, payment) => sum + payment.amount, 0);
+
+    const totalAdvanceAdjusted = salaryPayments
+      .filter((payment) => payment.staffId === staffId && payment.paymentType === "full")
+      .reduce((sum, payment) => {
+        const notes = payment.notes || "";
+        const loanDeductionMatch = notes.match(/Loan\s*Deduction:\s*Rs\s*([\d,]+)/i);
+        const legacyAdvanceAdjustmentMatch = notes.match(/Advance\s*Adjustment:\s*Rs\s*([\d,]+)/i);
+        const rawValue = loanDeductionMatch?.[1] || legacyAdvanceAdjustmentMatch?.[1];
+        const adjustedAmount = rawValue ? Number(rawValue.replace(/,/g, "")) : 0;
+        return sum + (Number.isFinite(adjustedAmount) ? adjustedAmount : 0);
+      }, 0);
+
+    return Math.max(0, totalAdvanceTaken - totalAdvanceAdjusted);
+  };
+
+  const getLatestEarlySalaryMonthLabel = (staffId: string) => {
+    const earlySalaryPayouts = salaryPayments
+      .filter((payment) => payment.staffId === staffId && payment.paymentType === "full")
+      .filter((payment) => (payment.notes || "").toLowerCase().includes("early salary payout"))
+      .sort((a, b) => getReferenceMonthDate(b).getTime() - getReferenceMonthDate(a).getTime());
+
+    const latestPayout = earlySalaryPayouts[0];
+    if (!latestPayout) return null;
+
+    const monthDate = getReferenceMonthDate(latestPayout);
+    return monthDate.toLocaleDateString("en-US", { month: "long" });
+  };
 
   const handleClearHistory = async () => {
     try {
@@ -135,11 +174,7 @@ export default function StaffListPage() {
     (sum, s) => sum + (s.monthlySalary || 0),
     0,
   );
-  const totalPayments = salaryPayments.reduce((sum, p) => sum + p.amount, 0);
   const totalStaffPaid = new Set(salaryPayments.map((p) => p.staffId)).size;
-  const currentBalances = new Map(
-    staff.map((s) => [s.id, getStaffRunningBalance(s.id)]),
-  );
 
   return (
     <div className="space-y-8 p-4 bg-background min-h-screen">
@@ -264,14 +299,28 @@ export default function StaffListPage() {
                     </TableCell>
                     <TableCell>
                       {(() => {
-                        const balance = currentBalances.get(s.id) || 0;
-                        const hasAdvance = balance < 0;
+                        const outstandingAdvance = getOutstandingAdvanceAmount(s.id);
+                        const latestEarlySalaryMonth = getLatestEarlySalaryMonthLabel(s.id);
+
+                        if (outstandingAdvance > 0) {
+                          return (
+                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700">
+                              Advance Taken: Rs {outstandingAdvance.toLocaleString()}
+                            </span>
+                          );
+                        }
+
+                        if (latestEarlySalaryMonth) {
+                          return (
+                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">
+                              {latestEarlySalaryMonth} Salary Done
+                            </span>
+                          );
+                        }
+
                         return (
-                          <span
-                            className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold ${hasAdvance ? "bg-red-100 text-red-700" : "bg-green-100 text-green-800"}`}
-                          >
-                            {hasAdvance ? "Advance Taken" : "Salary Pending"}:
-                            Rs {Math.abs(balance).toLocaleString()}
+                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">
+                            No Advance
                           </span>
                         );
                       })()}
@@ -357,9 +406,11 @@ export default function StaffListPage() {
               <div className="space-y-3">
                 {last30DaysPayments.map((payment) => {
                   const paymentDate = new Date(payment.date);
-                  const runningBalance = getStaffRunningBalance(
+                  const outstandingAdvance = getOutstandingAdvanceAmount(
                     payment.staffId,
-                    paymentDate,
+                  );
+                  const latestEarlySalaryMonth = getLatestEarlySalaryMonthLabel(
+                    payment.staffId,
                   );
 
                   return (
@@ -402,11 +453,11 @@ export default function StaffListPage() {
                             Rs {payment.amount.toLocaleString()}
                           </p>
                           <p className="text-[11px] text-muted-foreground mt-1">
-                            Balance: Rs{" "}
-                            {Math.abs(runningBalance).toLocaleString()}{" "}
-                            {runningBalance >= 0
-                              ? "(Salary Pending)"
-                              : "(Advance Taken)"}
+                            {outstandingAdvance > 0
+                              ? `Advance Due: Rs ${outstandingAdvance.toLocaleString()}`
+                              : latestEarlySalaryMonth
+                                ? `${latestEarlySalaryMonth} salary done`
+                                : "No advance due"}
                           </p>
                         </div>
                       </div>
