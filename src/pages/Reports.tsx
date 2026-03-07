@@ -382,7 +382,14 @@ const Reports = () => {
               const txRows = staffMonthPayments
                 .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
                 .map((p) => {
-                  const txType = p.paymentType === "advance" ? "Advance" : "Salary";
+                  const isManualAdvanceAdjustment =
+                    p.paymentType === "advance" &&
+                    (p.notes || "").toLowerCase().includes("manual advance update");
+                  const txType = p.paymentType === "advance"
+                    ? isManualAdvanceAdjustment
+                      ? "Advance Adj."
+                      : "Advance"
+                    : "Salary";
                   return [
                     formatDate(p.date),
                     `Rs. ${Number(p.amount || 0).toLocaleString()}`,

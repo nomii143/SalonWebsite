@@ -46,10 +46,12 @@ export default function StaffListPage() {
     users: staff,
     deleteUser: deleteStaff,
     updateUser: updateStaff,
+    addSalaryPayment,
     salaryPayments,
     clearAllSalaryPayments,
   } = useData();
   const [editingStaff, setEditingStaff] = useState<StaffUser | null>(null);
+  const [editingAdvance, setEditingAdvance] = useState("0");
 
   const getReferenceMonthDate = (payment: (typeof salaryPayments)[number]) => {
     if (payment.salaryForMonth && /^\d{4}-\d{2}$/.test(payment.salaryForMonth)) {
@@ -125,10 +127,61 @@ export default function StaffListPage() {
     })),
   );
 
-  const handleUpdateStaff = () => {
-    updateStaff(editingStaff.id, editingStaff);
-    toast.success("Staff details updated");
-    setEditingStaff(null);
+  const handleOpenEditStaff = (member: StaffUser) => {
+    setEditingStaff(member);
+    setEditingAdvance(String(getOutstandingAdvanceAmount(member.id)));
+  };
+
+  const handleUpdateStaff = async () => {
+    if (!editingStaff) return;
+
+    const targetAdvance = Number(editingAdvance || 0);
+    if (!Number.isFinite(targetAdvance) || targetAdvance < 0) {
+      toast.error("Advance must be a valid non-negative number");
+      return;
+    }
+
+    try {
+      await updateStaff(editingStaff.id, {
+        fullName: editingStaff.fullName,
+        monthlySalary: editingStaff.monthlySalary,
+      });
+
+      const currentAdvance = getOutstandingAdvanceAmount(editingStaff.id);
+      const adjustment = targetAdvance - currentAdvance;
+
+      if (Math.abs(adjustment) >= 0.01) {
+        const now = new Date();
+        const salaryForMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+
+        await addSalaryPayment({
+          staffId: editingStaff.id,
+          staffName: editingStaff.fullName,
+          amount: adjustment,
+          paymentType: "advance",
+          date: now.toISOString(),
+          salaryForMonth,
+          numberOfMonths: 1,
+          notes:
+            adjustment >= 0
+              ? `Manual advance update from Staff Details: +Rs ${Math.abs(adjustment).toLocaleString()}`
+              : `Manual advance update from Staff Details: -Rs ${Math.abs(adjustment).toLocaleString()}`,
+          status: "Pending",
+          amountPaid: 0,
+          advanceDeducted: 0,
+          totalSalaryGiven: 0,
+          month: now.getMonth() + 1,
+          year: now.getFullYear(),
+        });
+      }
+
+      toast.success("Staff details updated");
+      setEditingStaff(null);
+      setEditingAdvance("0");
+    } catch (error) {
+      console.error("Failed to update staff details:", error);
+      toast.error("Failed to update staff details");
+    }
   };
 
   const getReferenceDateFromPayment = (
@@ -444,7 +497,7 @@ export default function StaffListPage() {
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem
-                            onClick={() => setEditingStaff(s)}
+                            onClick={() => handleOpenEditStaff(s)}
                             className="cursor-pointer"
                           >
                             Update Details
@@ -518,6 +571,9 @@ export default function StaffListPage() {
                   const latestEarlySalaryMonth = getLatestEarlySalaryMonthLabel(
                     payment.staffId,
                   );
+                  const isManualAdvanceAdjustment =
+                    payment.paymentType === "advance" &&
+                    (payment.notes || "").toLowerCase().includes("manual advance update");
 
                   return (
                     <div
@@ -540,7 +596,9 @@ export default function StaffListPage() {
       </p>
       <p className="text-xs text-foreground/70 mt-0.5">
         {payment.paymentType === "advance"
-          ? "Advance Payment"
+          ? isManualAdvanceAdjustment
+            ? "Advance Adjustment"
+            : "Advance Payment"
           : "Salary Payment"}
         {` • ${getReferenceLabel(payment)}`}
       </p>
@@ -574,7 +632,12 @@ export default function StaffListPage() {
         {/* Edit Dialog */}
         <Dialog
           open={!!editingStaff}
-          onOpenChange={(open) => !open && setEditingStaff(null)}
+          onOpenChange={(open) => {
+            if (!open) {
+              setEditingStaff(null);
+              setEditingAdvance("0");
+            }
+          }}
         >
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
@@ -610,6 +673,19 @@ export default function StaffListPage() {
                       monthlySalary: Number(e.target.value),
                     })
                   }
+                  className="h-12"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-semibold">
+                  Advance (Rs)
+                </Label>
+                <Input
+                  type="number"
+                  min="0"
+                  value={editingAdvance}
+                  onWheel={(e) => (e.currentTarget as HTMLInputElement).blur()}
+                  onChange={(e) => setEditingAdvance(e.target.value)}
                   className="h-12"
                 />
               </div>

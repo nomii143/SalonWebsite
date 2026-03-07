@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useData } from "@/context/DataContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,7 @@ import { getTodayDateString } from "@/lib/utils";
 
 export default function AdvancePaymentPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const {
     users: staff,
     addSalaryPayment,
@@ -20,6 +21,16 @@ export default function AdvancePaymentPage() {
   const [amount, setAmount] = useState("0");
   const [numberOfMonths, setNumberOfMonths] = useState(1);
   const [isProcessing, setIsProcessing] = useState(false);
+
+  useEffect(() => {
+    const preselectedStaffId = searchParams.get("staffId");
+    if (!preselectedStaffId || selectedStaffId) return;
+
+    const exists = staff.some((member) => member.id === preselectedStaffId);
+    if (exists) {
+      setSelectedStaffId(preselectedStaffId);
+    }
+  }, [searchParams, selectedStaffId, staff]);
 
   const getReferenceMonthKey = (value: string) => {
     const refDate = new Date(value);
