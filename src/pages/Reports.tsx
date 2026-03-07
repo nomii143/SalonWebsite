@@ -93,7 +93,12 @@ const Reports = () => {
   const lastAuto = (doc as any).lastAutoTable;
   let startY = lastAuto && lastAuto.finalY ? lastAuto.finalY + 15 : 42;
 
-  if (startY > 240) { doc.addPage(); startY = 20; }
+  // Ensure heading and content stay together (need space for heading + table header + at least 1 row)
+  const minimumSpaceNeeded = 25;
+  if (startY > 240 || startY + minimumSpaceNeeded > 270) { 
+    doc.addPage(); 
+    startY = 20; 
+  }
 
   doc.setFontSize(12);
   doc.setTextColor(0);
@@ -241,6 +246,25 @@ const Reports = () => {
           groupedByMonth.get(monthKey)?.push(payment);
         });
 
+        const reportHeaderBaseY = (doc as any).lastAutoTable?.finalY
+          ? (doc as any).lastAutoTable.finalY + 12
+          : 42;
+        // Keep section heading and first month title together on the same page.
+        // If there is not enough room, move to a new page before drawing the heading.
+        const minimumSpaceNeeded = 18;
+        let reportHeaderY = reportHeaderBaseY;
+        if (reportHeaderY > 242 || reportHeaderY + minimumSpaceNeeded > 270) {
+          doc.addPage();
+          reportHeaderY = 20;
+        }
+
+        doc.setFontSize(14);
+        doc.setTextColor(0);
+        doc.setFont("helvetica", "bold");
+        doc.text("STAFF SALARIES REPORT", 14, reportHeaderY);
+
+        let isFirstMonthBlock = true;
+
         const getOpeningDebt = (staffId: string, currentMonthKey: string) => {
           const prior = salaryPayments
             .filter((p) => p.staffId === staffId)
@@ -261,8 +285,12 @@ const Reports = () => {
           .sort(([a], [b]) => a.localeCompare(b))
           .forEach(([monthKey, monthPayments]) => {
             const lastAuto = (doc as any).lastAutoTable;
-            let startY = lastAuto && lastAuto.finalY ? lastAuto.finalY + 16 : 42;
-            if (startY > 240) {
+            let startY = isFirstMonthBlock
+              ? reportHeaderY + 8
+              : (lastAuto && lastAuto.finalY ? lastAuto.finalY + 10 : reportHeaderY + 8);
+            
+            // Ensure enough space for month heading + at least first staff section
+            if (startY > 236) {
               doc.addPage();
               startY = 20;
             }
@@ -316,13 +344,18 @@ const Reports = () => {
                 ["Payment Status", paymentStatus],
                 ["Opening Debt Balance", `Rs. ${openingBalance.toLocaleString()}`],
                 ["New Loan Taken", `Rs. ${newAdvance.toLocaleString()}`],
-                ["Debt Deduction (Kattoti)", `Rs. ${deductedAmount.toLocaleString()}`],
+                ["Loan Deduction ", `Rs. ${deductedAmount.toLocaleString()}`],
                 ["Total Cash Handover", `Rs. ${cashHandover.toLocaleString()}`],
-                ["Remaining Debt (Baqi Karza)", `Rs. ${closingBalance.toLocaleString()}`],
+                ["Remaining Loan", `Rs. ${closingBalance.toLocaleString()}`],
               ];
 
               const beforeSummary = (doc as any).lastAutoTable;
-              let staffStartY = beforeSummary && beforeSummary.finalY ? beforeSummary.finalY + 10 : startY + 6;
+              const minimumStaffStartY = startY + 8;
+              let staffStartY = beforeSummary && beforeSummary.finalY
+                ? Math.max(beforeSummary.finalY + 8, minimumStaffStartY)
+                : minimumStaffStartY;
+              
+              // Ensure enough space for staff heading + summary table (at least 30mm needed)
               if (staffStartY > 235) {
                 doc.addPage();
                 staffStartY = 20;
@@ -333,7 +366,7 @@ const Reports = () => {
               doc.text(`Staff: ${staffName}`, 14, staffStartY);
 
               autoTable(doc, {
-                startY: staffStartY + 2,
+                startY: staffStartY + 4,
                 head: [["Description", "Amount"]],
                 body: summaryRows,
                 theme: "striped",
@@ -370,13 +403,15 @@ const Reports = () => {
                   }
                 },
               });
+
+              isFirstMonthBlock = false;
             });
           });
 
         if (groupedByMonth.size === 0) {
           const lastAuto = (doc as any).lastAutoTable;
-          let startY = lastAuto && lastAuto.finalY ? lastAuto.finalY + 15 : 42;
-          if (startY > 240) {
+          let startY = lastAuto && lastAuto.finalY ? lastAuto.finalY + 10 : reportHeaderY + 8;
+          if (startY > 242) {
             doc.addPage();
             startY = 20;
           }
@@ -545,3 +580,4 @@ const Reports = () => {
 };
 
 export default Reports;
+//nk7

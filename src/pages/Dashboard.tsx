@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useData } from "@/context/DataContext";
 import { StatCard } from "@/components/StatCard";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,8 @@ import {
 
 export default function Dashboard() {
   const { items, sales, stockouts, expenses, salaryPayments } = useData();
+  const isElectron = typeof window !== "undefined" && Boolean(window.electronAPI);
+  const [dashboardSummary, setDashboardSummary] = useState<ElectronDashboardSummary | null>(null);
 
   const now = new Date();
   const monthName = now.toLocaleString('default', { month: 'long' });
@@ -69,6 +71,24 @@ export default function Dashboard() {
   }, 0);
 
   const totalItems = items.reduce((s, i) => s + i.quantity, 0);
+
+  useEffect(() => {
+    if (!isElectron) return;
+    const loadSummary = async () => {
+      try {
+        const summary = await window.electronAPI.getDashboardSummary();
+        setDashboardSummary(summary);
+      } catch (error) {
+        console.error("Failed to load SQL dashboard summary", error);
+      }
+    };
+    loadSummary();
+  }, [isElectron, sales.length, expenses.length, salaryPayments.length, items.length]);
+
+  const summarySales = dashboardSummary?.monthlySales ?? monthlySales;
+  const summaryExpenses = dashboardSummary?.totalMonthlyExpenses ?? totalMonthlyExpenses;
+  const summaryVendorPayments = dashboardSummary?.monthlyVendorPayments ?? vendorPayments;
+  const summaryTotalItems = dashboardSummary?.totalItems ?? totalItems;
 
 
   // Sales Graph filtered by Current Month
@@ -179,22 +199,22 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard 
           title={<CardTitle main="Total Sales" sub={`${monthName} ${currentYear}`} />} 
-          value={`Rs ${monthlySales.toLocaleString()}`} 
+          value={`Rs ${summarySales.toLocaleString()}`} 
           icon={<ShoppingCart className="w-4 h-4 text-primary" />} 
         />
         <StatCard 
           title={<CardTitle main="Total Expenses" sub={`${monthName} ${currentYear}`} />} 
-          value={`Rs ${totalMonthlyExpenses.toLocaleString()}`} 
+          value={`Rs ${summaryExpenses.toLocaleString()}`} 
           icon={<TrendingDown className="w-4 h-4 text-destructive" />} 
         />
         <StatCard 
           title={<CardTitle main="Vendor Payments" sub={`${monthName} ${currentYear}`} />} 
-          value={`Rs ${vendorPayments.toLocaleString()}`} 
+          value={`Rs ${summaryVendorPayments.toLocaleString()}`} 
           icon={<CreditCard className="w-4 h-4 text-blue-500" />} 
         />
         <StatCard 
           title={<CardTitle main="Stock Items" sub="Current Inventory" />} 
-          value={totalItems} 
+          value={summaryTotalItems} 
           icon={<Package className="w-4 h-4 text-orange-500" />} 
         />
       </div>

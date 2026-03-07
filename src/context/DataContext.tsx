@@ -2,43 +2,6 @@ import { createContext, useContext, ReactNode, useEffect, useMemo, useState } fr
 import { Item, Sale, Stockout, Expense, StaffUser, SalaryPayment } from "@/test/types/models";
 import { getTodayDateString } from "@/lib/utils";
 
-// Seed data
-const seedItems: Item[] = [
-  { id: "1", name: "Shampoo (500ml)", quantity: 24, costPrice: 8, sellingPrice: 15, entryDate: "2026-03-01" },
-  { id: "2", name: "Hair Gel", quantity: 18, costPrice: 5, sellingPrice: 12, entryDate: "2026-03-01" },
-  { id: "3", name: "Beard Oil", quantity: 30, costPrice: 10, sellingPrice: 22, entryDate: "2026-03-02" },
-  { id: "4", name: "Hair Clipper Blade", quantity: 10, costPrice: 15, sellingPrice: 30, entryDate: "2026-03-03" },
-  { id: "5", name: "Conditioner", quantity: 20, costPrice: 7, sellingPrice: 14, entryDate: "2026-03-04" },
-];
-
-const seedSales: Sale[] = [
-  { id: "s1", buyerName: "General Sale", itemId: "manual-entry", itemName: "Direct Revenue", quantitySold: 0, totalAmount: 250, cashAmount: 150, cardAmount: 100, paymentMethod: "Split", saleDate: "2026-03-01" },
-  { id: "s2", buyerName: "General Sale", itemId: "manual-entry", itemName: "Direct Revenue", quantitySold: 0, totalAmount: 380, cashAmount: 250, cardAmount: 130, paymentMethod: "Split", saleDate: "2026-03-02" },
-  { id: "s3", buyerName: "General Sale", itemId: "manual-entry", itemName: "Direct Revenue", quantitySold: 0, totalAmount: 320, cashAmount: 200, cardAmount: 120, paymentMethod: "Split", saleDate: "2026-03-03" },
-  { id: "s4", buyerName: "General Sale", itemId: "manual-entry", itemName: "Direct Revenue", quantitySold: 0, totalAmount: 450, cashAmount: 300, cardAmount: 150, paymentMethod: "Split", saleDate: "2026-03-04" },
-];
-
-const seedStockouts: Stockout[] = [
-  { id: "1", staffName: "James K.", itemId: "1", itemName: "Shampoo (500ml)", quantity: 2, totalAmount: 30, date: "2026-03-05" },
-  { id: "2", staffName: "Mary A.", itemId: "3", itemName: "Beard Oil", quantity: 1, totalAmount: 22, date: "2026-03-06" },
-  { id: "3", staffName: "John D.", itemId: "2", itemName: "Hair Gel", quantity: 3, totalAmount: 36, date: "2026-03-07" },
-  { id: "4", staffName: "Sarah L.", itemId: "5", itemName: "Conditioner", quantity: 2, totalAmount: 28, date: "2026-03-08" },
-  { id: "5", staffName: "Mike R.", itemId: "4", itemName: "Hair Clipper Blade", quantity: 1, totalAmount: 30, date: "2026-03-09" },
-];
-
-const seedExpenses: Expense[] = [
-  { id: "1", category: "Food", amount: 25, staffName: "David", staffPicture: "", description: "Lunch for staff", date: "2026-03-07" },
-  { id: "2", category: "Taxi", amount: 15, staffName: "Grace", staffPicture: "", description: "Transport to supplier", date: "2026-03-08" },
-  { id: "3", category: "Maintenance", amount: 80, staffName: "Admin", staffPicture: "", description: "AC repair", date: "2026-03-09" },
-  { id: "4", category: "Utilities", amount: 120, staffName: "Admin", staffPicture: "", description: "Electricity bill", date: "2026-03-06", source: "vendor_payment" },
-];
-
-const seedUsers: StaffUser[] = [
-  { id: "1", fullName: "David Osei", email: "david@salon.com", phone: "+92 346 272 6255", role: "Manager", pictureUrl: "", joinDate: "2025-06-01" },
-  { id: "2", fullName: "Grace Mensah", email: "grace@salon.com", phone: "+92 301 555 0198", role: "Staff", pictureUrl: "", joinDate: "2025-08-15" },
-  { id: "3", fullName: "Admin User", email: "admin@salon.com", phone: "+92 333 700 4401", role: "Admin", pictureUrl: "", joinDate: "2025-01-01" },
-];
-
 interface DataContextType {
   items: Item[];
   sales: Sale[];
@@ -80,95 +43,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
     () => typeof window !== "undefined" && Boolean(window.electronAPI),
     []
   );
-  const migrationFlagKey = "salon_migrated_to_sqlite";
-
-  const readStorage = <T,>(key: string, fallback: T) => {
-    if (typeof window === "undefined") return fallback;
-    try {
-      const item = window.localStorage.getItem(key);
-      return item ? (JSON.parse(item) as T) : fallback;
-    } catch {
-      return fallback;
-    }
-  };
-
-  const writeStorage = <T,>(key: string, value: T) => {
-    if (typeof window === "undefined") return;
-    try {
-      window.localStorage.setItem(key, JSON.stringify(value));
-    } catch {
-      // Ignore storage failures (private mode, blocked storage, etc.)
-    }
-  };
-
-  const markMigrationComplete = () => {
-    if (typeof window === "undefined") return;
-    try {
-      window.localStorage.setItem(migrationFlagKey, "true");
-    } catch {
-      // Ignore storage failures
-    }
-  };
-
-  const hasMigrated = () => {
-    if (typeof window === "undefined") return false;
-    try {
-      return window.localStorage.getItem(migrationFlagKey) === "true";
-    } catch {
-      return false;
-    }
-  };
-
-  const [items, setItems] = useState<Item[]>(() =>
-    isElectron ? [] : readStorage("salon_items", seedItems)
-  );
-  const [sales, setSales] = useState<Sale[]>(() =>
-    isElectron ? [] : readStorage("salon_sales", seedSales)
-  );
-  const [stockouts, setStockouts] = useState<Stockout[]>(() =>
-    isElectron ? [] : readStorage("salon_stockouts", seedStockouts)
-  );
-  const [expenses, setExpenses] = useState<Expense[]>(() =>
-    isElectron ? [] : readStorage("salon_expenses", seedExpenses)
-  );
-  const [users, setUsers] = useState<StaffUser[]>(() =>
-    isElectron ? [] : readStorage("salon_users", seedUsers)
-  );
-  const [salaryPayments, setSalaryPayments] = useState<SalaryPayment[]>(() =>
-    isElectron ? [] : readStorage("salon_salary_payments", [])
-  );
-
-  useEffect(() => {
-    if (isElectron) return;
-    writeStorage("salon_items", items);
-  }, [isElectron, items]);
-
-  useEffect(() => {
-    if (isElectron) return;
-    writeStorage("salon_sales", sales);
-  }, [isElectron, sales]);
-
-  useEffect(() => {
-    if (isElectron) return;
-    writeStorage("salon_stockouts", stockouts);
-  }, [isElectron, stockouts]);
-
-  useEffect(() => {
-    if (isElectron) return;
-    writeStorage("salon_expenses", expenses);
-  }, [isElectron, expenses]);
-
-  useEffect(() => {
-    if (isElectron) return;
-    writeStorage("salon_users", users);
-  }, [isElectron, users]);
-
-  useEffect(() => {
-    if (isElectron) return;
-    console.log("[useEffect] Salary payments changed, count:", salaryPayments.length);
-    // Don't write to localStorage here - it's already done in addSalaryPayment
-    // This avoids race conditions and duplicate writes
-  }, [isElectron, salaryPayments]);
+  const [items, setItems] = useState<Item[]>([]);
+  const [sales, setSales] = useState<Sale[]>([]);
+  const [stockouts, setStockouts] = useState<Stockout[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [users, setUsers] = useState<StaffUser[]>([]);
+  const [salaryPayments, setSalaryPayments] = useState<SalaryPayment[]>([]);
 
   const normalizeDate = (value?: string | null) => {
     if (!value) return getTodayDateString();
@@ -384,168 +264,17 @@ export function DataProvider({ children }: { children: ReactNode }) {
     setUsers(rows.map(mapUserRow));
   };
 
-  const migrateFromLocalStorage = async () => {
-    if (!isElectron) return;
-    if (hasMigrated()) return;
-
-    const storedItems = readStorage<Item[]>("salon_items", []);
-    const storedSales = readStorage<Sale[]>("salon_sales", []);
-    const storedStockouts = readStorage<Stockout[]>("salon_stockouts", []);
-    const storedExpenses = readStorage<Expense[]>("salon_expenses", []);
-    const storedUsers = readStorage<StaffUser[]>("salon_users", []);
-
-    const normalizeKeyDate = (value?: string | null) => normalizeDate(value || null);
-    const itemNameToLocal = new Map(storedItems.map((item) => [item.name, item]));
-
-    const dbItems = await window.electronAPI.getItems();
-    const dbSales = await window.electronAPI.getSales();
-    const dbStockouts = await window.electronAPI.getStockouts();
-    const dbExpenses = await window.electronAPI.getExpenses();
-    const dbUsers = await window.electronAPI.getUsers();
-
-    const dbItemNames = new Set(dbItems.map((row) => row.name));
-    const dbSaleKeys = new Set(
-      dbSales.map((row: any) => {
-        const saleDate = normalizeKeyDate(row.date);
-        return `${row.buyer_name}|${row.item_name}|${Number(row.quantity || 0)}|${Number(row.total_amount || 0)}|${saleDate}`;
-      })
-    );
-    const dbStockoutKeys = new Set(
-      dbStockouts.map((row: any) => {
-        const outDate = normalizeKeyDate(row.date);
-        return `${row.staff_name || ""}|${row.item_name}|${Number(row.quantity || 0)}|${Number(row.total_amount || 0)}|${outDate}`;
-      })
-    );
-    const dbExpenseKeys = new Set(
-      dbExpenses.map((row: any) => {
-        const expDate = normalizeKeyDate(row.date);
-        const description = row.description || "";
-        const source = row.source || "";
-        return `${row.category}|${Number(row.amount || 0)}|${description}|${expDate}|${source}`;
-      })
-    );
-    const dbUserKeys = new Set(
-      dbUsers.map((row: any) => `${row.username || ""}|${row.role || ""}`)
-    );
-
-    for (const item of storedItems) {
-      if (dbItemNames.has(item.name)) continue;
-      await window.electronAPI.addItem({
-        name: item.name,
-        current_stock_amount: item.quantity,
-        cost_price: item.costPrice,
-        selling_price: item.sellingPrice,
-        unit_price: item.sellingPrice,
-        entry_date: item.entryDate
-      });
-    }
-
-    const refreshedItems = await window.electronAPI.getItems();
-    const itemNameToId = new Map(refreshedItems.map((row) => [row.name, row.id]));
-
-    const isManualSale = (sale: Sale) =>
-      sale.buyerName === "General Sale" ||
-      sale.itemId === "manual-entry" ||
-      sale.itemName === "Direct Revenue";
-
-    const legacyStockouts = storedSales.filter((sale) => !isManualSale(sale));
-    const manualSales = storedSales.filter(isManualSale);
-    const stockoutsToMigrate = [...storedStockouts, ...legacyStockouts];
-
-    for (const sale of manualSales) {
-      const saleDate = normalizeKeyDate(sale.saleDate);
-      const key = `${sale.buyerName}|${sale.itemName}|${sale.quantitySold}|${sale.totalAmount}|${saleDate}`;
-      if (dbSaleKeys.has(key)) continue;
-      const localItem = itemNameToLocal.get(sale.itemName);
-      const itemId = itemNameToId.get(sale.itemName) ?? null;
-      await window.electronAPI.recordSale({
-        buyer_name: sale.buyerName,
-        item_name: sale.itemName,
-        item_id: itemId,
-        quantity: sale.quantitySold,
-        unit_price: localItem?.sellingPrice ?? 0,
-        total_amount: sale.totalAmount,
-        cash_amount: Number(sale.cashAmount || 0),
-        card_amount: Number(sale.cardAmount || 0),
-        date: sale.saleDate
-      });
-    }
-
-    for (const stockout of stockoutsToMigrate) {
-      const outDate = normalizeKeyDate(stockout.date || (stockout as any).saleDate);
-      const name = (stockout as any).staffName || (stockout as any).buyerName || "";
-      const itemName = (stockout as any).itemName;
-      const quantity = Number((stockout as any).quantity ?? (stockout as any).quantitySold ?? 0);
-      const totalAmount = Number((stockout as any).totalAmount ?? 0);
-      const key = `${name}|${itemName}|${quantity}|${totalAmount}|${outDate}`;
-      if (dbStockoutKeys.has(key)) continue;
-      const localItem = itemNameToLocal.get(itemName);
-      const itemId = itemNameToId.get(itemName) ?? null;
-      await window.electronAPI.addStockout({
-        staff_name: name,
-        item_name: itemName,
-        item_id: itemId,
-        quantity,
-        unit_price: localItem?.sellingPrice ?? 0,
-        total_amount: totalAmount,
-        date: (stockout as any).date || (stockout as any).saleDate
-      });
-    }
-
-    for (const expense of storedExpenses) {
-      const expDate = normalizeKeyDate(expense.date);
-      const description = expense.description || "";
-      const source = expense.source || "";
-      const key = `${expense.category}|${expense.amount}|${description}|${expDate}|${source}`;
-      if (dbExpenseKeys.has(key)) continue;
-      await window.electronAPI.addExpense({
-        category: expense.category,
-        amount: expense.amount,
-        staff_name: expense.staffName,
-        staff_pic_url: expense.staffPicture || null,
-        description: expense.description || null,
-        date: expense.date,
-        source: expense.source || null
-      });
-    }
-
-    for (const user of storedUsers) {
-      const key = `${user.fullName}|${user.role}`;
-      if (dbUserKeys.has(key)) continue;
-      await window.electronAPI.addUser({
-        username: user.fullName,
-        role: user.role,
-        details: {
-          email: user.email,
-          phone: user.phone,
-          pictureUrl: user.pictureUrl,
-          joinDate: user.joinDate
-        }
-      });
-    }
-
-    markMigrationComplete();
-  };
-
   useEffect(() => {
-    if (!isElectron) return;
     const loadAll = async () => {
-      try {
-        await migrateFromLocalStorage();
-      } catch (error) {
-        console.error("SQLite migration failed", error);
-      }
+      if (!isElectron) return;
       await Promise.all([refreshItems(), refreshSales(), refreshStockouts(), refreshExpenses(), refreshUsers()]);
     };
     loadAll();
   }, [isElectron]);
 
-  const genId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-
   const addItem = async (item: Omit<Item, "id">) => {
     if (!isElectron) {
-      setItems((prev) => [...prev, { ...item, id: genId() }]);
-      return;
+      throw new Error("SQLite DB save is available only in Electron desktop app.");
     }
 
     await window.electronAPI.addItem({
@@ -561,8 +290,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const addSale = async (sale: Omit<Sale, "id">) => {
     if (!isElectron) {
-      setSales((prev) => [...prev, { ...sale, id: genId() }]);
-      return;
+      throw new Error("SQLite DB save is available only in Electron desktop app.");
     }
 
     const item = items.find((i) => i.id === sale.itemId);
@@ -582,15 +310,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const addStockout = async (stockout: Omit<Stockout, "id">) => {
     if (!isElectron) {
-      setStockouts((prev) => [...prev, { ...stockout, id: genId() }]);
-      setItems((prev) =>
-        prev.map((i) =>
-          i.id === stockout.itemId
-            ? { ...i, quantity: Math.max(0, i.quantity - stockout.quantity) }
-            : i
-        )
-      );
-      return;
+      throw new Error("SQLite DB save is available only in Electron desktop app.");
     }
 
     const item = items.find((i) => i.id === stockout.itemId);
@@ -608,8 +328,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const updateSale = async (id: string, updates: Partial<Sale>) => {
     if (!isElectron) {
-      setSales((prev) => prev.map((s) => (s.id === id ? { ...s, ...updates } : s)));
-      return;
+      throw new Error("SQLite DB save is available only in Electron desktop app.");
     }
 
     await window.electronAPI.updateSale({
@@ -629,37 +348,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const updateStockout = async (id: string, updates: Partial<Stockout>) => {
     if (!isElectron) {
-      const currentOut = stockouts.find((s) => s.id === id);
-      if (!currentOut) {
-        return;
-      }
-
-      const nextItemId = updates.itemId ?? currentOut.itemId;
-      const nextQty = updates.quantity ?? currentOut.quantity;
-
-      setItems((prev) => {
-        if (currentOut.itemId === nextItemId) {
-          const delta = nextQty - currentOut.quantity;
-          return prev.map((item) =>
-            item.id === currentOut.itemId
-              ? { ...item, quantity: Math.max(0, item.quantity - delta) }
-              : item
-          );
-        }
-
-        return prev.map((item) => {
-          if (item.id === currentOut.itemId) {
-            return { ...item, quantity: item.quantity + currentOut.quantity };
-          }
-          if (item.id === nextItemId) {
-            return { ...item, quantity: Math.max(0, item.quantity - nextQty) };
-          }
-          return item;
-        });
-      });
-
-      setStockouts((prev) => prev.map((s) => (s.id === id ? { ...s, ...updates } : s)));
-      return;
+      throw new Error("SQLite DB save is available only in Electron desktop app.");
     }
 
     await window.electronAPI.updateStockout({
@@ -677,8 +366,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const addExpense = async (expense: Omit<Expense, "id">) => {
     if (!isElectron) {
-      setExpenses((prev) => [...prev, { ...expense, id: genId() }]);
-      return;
+      throw new Error("SQLite DB save is available only in Electron desktop app.");
     }
 
     await window.electronAPI.addExpense({
@@ -695,8 +383,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const updateExpense = async (id: string, updates: Partial<Expense>) => {
     if (!isElectron) {
-      setExpenses((prev) => prev.map((e) => (e.id === id ? { ...e, ...updates } : e)));
-      return;
+      throw new Error("SQLite DB save is available only in Electron desktop app.");
     }
 
     await window.electronAPI.updateExpense({
@@ -714,8 +401,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const addUser = async (user: Omit<StaffUser, "id">) => {
     if (!isElectron) {
-      setUsers((prev) => [...prev, { ...user, id: genId() }]);
-      return;
+      throw new Error("SQLite DB save is available only in Electron desktop app.");
     }
 
     await window.electronAPI.addUser({
@@ -735,8 +421,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const updateItem = async (id: string, updates: Partial<Item>) => {
     if (!isElectron) {
-      setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...updates } : i)));
-      return;
+      throw new Error("SQLite DB save is available only in Electron desktop app.");
     }
 
     const payload: ElectronItemUpdate = { id: Number(id) };
@@ -755,8 +440,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const deleteItem = async (id: string) => {
     if (!isElectron) {
-      setItems((prev) => prev.filter((i) => i.id !== id));
-      return;
+      throw new Error("SQLite DB save is available only in Electron desktop app.");
     }
 
     await window.electronAPI.deleteItem(Number(id));
@@ -765,8 +449,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const deleteSale = async (id: string) => {
     if (!isElectron) {
-      setSales((prev) => prev.filter((s) => s.id !== id));
-      return;
+      throw new Error("SQLite DB save is available only in Electron desktop app.");
     }
 
     await window.electronAPI.deleteSale(Number(id));
@@ -775,18 +458,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const deleteStockout = async (id: string) => {
     if (!isElectron) {
-      const currentOut = stockouts.find((s) => s.id === id);
-      if (currentOut) {
-        setItems((prev) =>
-          prev.map((item) =>
-            item.id === currentOut.itemId
-              ? { ...item, quantity: item.quantity + currentOut.quantity }
-              : item
-          )
-        );
-      }
-      setStockouts((prev) => prev.filter((s) => s.id !== id));
-      return;
+      throw new Error("SQLite DB save is available only in Electron desktop app.");
     }
 
     await window.electronAPI.deleteStockout(Number(id));
@@ -795,8 +467,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const deleteExpense = async (id: string) => {
     if (!isElectron) {
-      setExpenses((prev) => prev.filter((e) => e.id !== id));
-      return;
+      throw new Error("SQLite DB save is available only in Electron desktop app.");
     }
 
     await window.electronAPI.deleteExpense(Number(id));
@@ -805,8 +476,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const deleteUser = async (id: string) => {
     if (!isElectron) {
-      setUsers((prev) => prev.filter((u) => u.id !== id));
-      return;
+      throw new Error("SQLite DB save is available only in Electron desktop app.");
     }
 
     await window.electronAPI.deleteUser(Number(id));
@@ -818,39 +488,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     console.log("[deleteSalaryPayment] Current state before delete:", salaryPayments.length, "payments");
     
     if (!isElectron) {
-      // Browser mode: Remove from state and update localStorage
-      try {
-        // First, filter the payment
-        const updated = salaryPayments.filter((p) => p.id !== id);
-        console.log("[deleteSalaryPayment] Filtered payment - new count:", updated.length);
-        
-        if (updated.length === salaryPayments.length) {
-          console.error("[deleteSalaryPayment] Payment not found in array! ID:", id);
-          console.log("[deleteSalaryPayment] Payment IDs in array:", salaryPayments.map(p => p.id));
-          throw new Error(`Payment with ID ${id} not found in array`);
-        }
-        
-        // Write to localStorage
-        writeStorage("salon_salary_payments", updated);
-        console.log("[deleteSalaryPayment] Written to localStorage");
-        
-        // Verify it was written
-        const verified = readStorage<SalaryPayment[]>("salon_salary_payments", []);
-        console.log("[deleteSalaryPayment] Verified from localStorage - count:", verified.length);
-        
-        // Now update state
-        setSalaryPayments(updated);
-        console.log("[deleteSalaryPayment] State updated");
-        
-        // Wait for state to be sure it's updated
-        await new Promise(resolve => setTimeout(resolve, 100));
-        console.log("[deleteSalaryPayment] Completed with timeout");
-        
-      } catch (error) {
-        console.error("[deleteSalaryPayment] Browser mode error:", error);
-        throw error;
-      }
-      return;
+      throw new Error("SQLite DB save is available only in Electron desktop app.");
     }
 
     // Electron mode: Delete from database
@@ -870,17 +508,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     console.log("[clearAllSalaryPayments] Clearing all salary payment records");
     
     if (!isElectron) {
-      // Browser mode: Clear all from state and localStorage
-      try {
-        setSalaryPayments([]);
-        writeStorage("salon_salary_payments", []);
-        const verified = readStorage<SalaryPayment[]>("salon_salary_payments", []);
-        console.log("[clearAllSalaryPayments] Cleared localStorage, verified count:", verified.length);
-        return { deleted: true, deletedCount: salaryPayments.length };
-      } catch (error) {
-        console.error("[clearAllSalaryPayments] Browser mode error:", error);
-        throw error;
-      }
+      throw new Error("SQLite DB save is available only in Electron desktop app.");
     }
 
     // Electron mode: Clear all from database
@@ -898,8 +526,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const updateUser = async (id: string, updates: Partial<StaffUser>) => {
     if (!isElectron) {
-      setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, ...updates } : u)));
-      return;
+      throw new Error("SQLite DB save is available only in Electron desktop app.");
     }
 
     await window.electronAPI.updateUser({
@@ -919,7 +546,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   };
   /**
    * Add salary payment record
-   * - Saves all payment details to database permanently (Electron) or localStorage (browser)
+    * - Saves all payment details to SQLite database permanently (Electron)
    * - Includes: staff ID, name, amount, payment type (full/advance), date, number of months
    * - Database retains all records for auditing and reporting
    * - UI displays last 30 days only (filtered on app load)
@@ -948,30 +575,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     });
     
     if (!isElectron) {
-      // Browser mode: Use functional update pattern and immediately persist to localStorage
-      return new Promise<void>((resolve) => {
-        setSalaryPayments((prev) => {
-          console.log("[addSalaryPayment] Previous payments count:", prev.length);
-          console.log("[addSalaryPayment] Previous payments:", prev);
-          const updated = [...prev, newPayment];
-          console.log("[addSalaryPayment] Updated payments count:", updated.length);
-          console.log("[addSalaryPayment] Updated payments:", updated);
-          // Immediately write to localStorage to ensure persistence
-          writeStorage("salon_salary_payments", updated);
-          // Verify write
-          const verified = readStorage<SalaryPayment[]>("salon_salary_payments", []);
-          console.log("[addSalaryPayment] Verified localStorage count:", verified.length);
-          console.log("[addSalaryPayment] Verified localStorage:", verified);
-          
-          // Resolve the promise after a brief delay to ensure React has processed the update
-          setTimeout(() => {
-            console.log("[addSalaryPayment] State update complete, resolving promise");
-            resolve();
-          }, 50);
-          
-          return updated;
-        });
-      });
+      throw new Error("SQLite DB save is available only in Electron desktop app.");
     }
 
     // Electron mode: Save to database and update local state
@@ -984,7 +588,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
         date: actualPaymentDate,
         salaryForMonth,
         numberOfMonths: payment.numberOfMonths,
-        notes: payment.notes
+        notes: payment.notes,
+        status: payment.status,
+        amountPaid: payment.amountPaid,
+        advanceDeducted: payment.advanceDeducted,
+        totalSalaryGiven: payment.totalSalaryGiven,
+        month: payment.month,
+        year: payment.year
       });
       console.log("Saved to database successfully");
       // Also update local state
@@ -995,13 +605,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       });
     } catch (error) {
       console.error("Failed to save salary payment to database:", error);
-      // Fallback: Still update local state and persist to localStorage even if database save fails
-      setSalaryPayments((prev) => {
-        const updated = [...prev, newPayment];
-        console.log("Updated payments (fallback mode):", updated.length, "payments");
-        writeStorage("salon_salary_payments", updated);
-        return updated;
-      });
+      throw error;
     }
   };
 
@@ -1024,13 +628,18 @@ export function DataProvider({ children }: { children: ReactNode }) {
         date: row.created_at || row.date,
         salaryForMonth: normalizeSalaryReferenceMonth(row.salary_for_month, row.date || row.created_at),
         numberOfMonths: row.number_of_months ? Number(row.number_of_months) : undefined,
-        notes: row.notes || undefined
+        notes: row.notes || undefined,
+        status: (row.status as "Pending" | "Deducted" | "Completed") || "Pending",
+        amountPaid: row.amount_paid ? Number(row.amount_paid) : undefined,
+        advanceDeducted: row.advance_deducted ? Number(row.advance_deducted) : undefined,
+        totalSalaryGiven: row.total_salary_given ? Number(row.total_salary_given) : undefined,
+        month: row.month ? Number(row.month) : undefined,
+        year: row.year ? Number(row.year) : undefined
       }))
     );
   };
 
-  // Initialize salary payments from database in Electron mode
-  // In browser mode, payments are already loaded from localStorage during state initialization
+  // Initialize salary payments from SQLite database in Electron mode
   useEffect(() => {
     const initPayments = async () => {
       if (isElectron) {

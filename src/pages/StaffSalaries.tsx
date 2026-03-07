@@ -36,6 +36,7 @@ import {
   Users,
   CheckCircle2,
   Clock,
+  TrendingDown,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -63,9 +64,14 @@ export default function StaffListPage() {
       .filter((payment) => payment.staffId === staffId && payment.paymentType === "advance")
       .reduce((sum, payment) => sum + payment.amount, 0);
 
-    const totalAdvanceAdjusted = salaryPayments
+    const totalAdvanceDeducted = salaryPayments
       .filter((payment) => payment.staffId === staffId && payment.paymentType === "full")
       .reduce((sum, payment) => {
+        // Use new field if available
+        if (payment.advanceDeducted !== undefined) {
+          return sum + payment.advanceDeducted;
+        }
+        // Fallback: Parse from notes for old records
         const notes = payment.notes || "";
         const loanDeductionMatch = notes.match(/Loan\s*Deduction:\s*Rs\s*([\d,]+)/i);
         const legacyAdvanceAdjustmentMatch = notes.match(/Advance\s*Adjustment:\s*Rs\s*([\d,]+)/i);
@@ -74,7 +80,7 @@ export default function StaffListPage() {
         return sum + (Number.isFinite(adjustedAmount) ? adjustedAmount : 0);
       }, 0);
 
-    return Math.max(0, totalAdvanceTaken - totalAdvanceAdjusted);
+    return Math.max(0, totalAdvanceTaken - totalAdvanceDeducted);
   };
 
   const getLatestEarlySalaryMonthLabel = (staffId: string) => {
@@ -157,7 +163,29 @@ export default function StaffListPage() {
     return `For ${referenceStart.toLocaleDateString("en-US", { month: "long", year: "numeric" })}`;
   };
 
-  // Filter to show only last 30 days on the UI (but all data is persisted in localStorage)
+  // ===== HELPER FUNCTIONS FOR STATISTICS =====
+
+  // Extract net payout amount staff actually received from payment notes
+  const getNetPayoutFromNotes = (notes: string): number => {
+    const match = notes.match(/Staff Receives:\s*Rs\s*([\d,]+)/i);
+    if (match) {
+      const amount = Number(match[1].replace(/,/g, ""));
+      return Number.isFinite(amount) ? amount : 0;
+    }
+    return 0;
+  };
+
+  // Extract loan deduction amount from payment notes
+  const getLoanDeductionFromNotes = (notes: string): number => {
+    const match = notes.match(/Loan\s*Deduction:\s*Rs\s*([\d,]+)/i);
+    if (match) {
+      const amount = Number(match[1].replace(/,/g, ""));
+      return Number.isFinite(amount) ? amount : 0;
+    }
+    return 0;
+  };
+
+  // Filter to show only last 30 days on the UI (full records remain in SQLite)
   const last30DaysPayments = salaryPayments
     .filter((payment) => {
       const now = new Date();
@@ -176,6 +204,66 @@ export default function StaffListPage() {
   );
   const totalStaffPaid = new Set(salaryPayments.map((p) => p.staffId)).size;
 
+  const getCurrentMonthPayments = () => {
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+    
+    return salaryPayments.filter((payment) => {
+      const paymentDate = new Date(payment.date);
+      return paymentDate.getFullYear() === currentYear && paymentDate.getMonth() === currentMonth;
+    });
+  };
+
+  const currentMonthPayments = getCurrentMonthPayments();
+
+  // PAID SALARIES (This Month): Sum of (amount_paid + advance_deducted) for current month
+  // This includes both the net amount staff received AND the advance that was deducted
+  const paidSalariesCurrentMonth = currentMonthPayments
+    .filter((payment) => payment.paymentType === "full")
+    .reduce((sum, payment) => {
+      // Use new fields if available
+      if (payment.amountPaid !== undefined || payment.advanceDeducted !== undefined) {
+        const amountPaid = payment.amountPaid || 0;
+        const advanceDeducted = payment.advanceDeducted || 0;
+        return sum + amountPaid + advanceDeducted;
+      }
+      // Fallback: Parse from notes for old records
+      const netPayout = getNetPayoutFromNotes(payment.notes || "");
+      const loanDeduction = getLoanDeductionFromNotes(payment.notes || "");
+      return sum + netPayout + loanDeduction;
+    }, 0);
+
+  // UNPAID SALARIES (This Month): Sum of monthly salaries for staff who haven't been paid yet
+  const staffPaidThisMonth = new Set(
+    currentMonthPayments
+      .filter((payment) => payment.paymentType === "full")
+      .map((payment) => payment.staffId)
+  );
+  const unpaidSalariesCurrentMonth = staff
+    .filter((s) => !staffPaidThisMonth.has(s.id))
+    .reduce((sum, s) => sum + (s.monthlySalary || 0), 0);
+
+  // OUTSTANDING ADVANCE DEBT: Total advances - total advance deducted
+  const totalAdvances = salaryPayments
+    .filter((payment) => payment.paymentType === "advance")
+    .reduce((sum, payment) => sum + payment.amount, 0);
+
+  const totalAdvanceDeducted = salaryPayments
+    .filter((payment) => payment.paymentType === "full")
+    .reduce((sum, payment) => {
+      // Use new field if available
+      if (payment.advanceDeducted !== undefined) {
+        return sum + payment.advanceDeducted;
+      }
+      // Fallback: Parse from notes for old records
+      return sum + getLoanDeductionFromNotes(payment.notes || "");
+    }, 0);
+
+  const totalAdvancePayments = Math.max(0, totalAdvances - totalAdvanceDeducted);
+
+  const currentMonth = new Date().toLocaleDateString("en-US", { month: "long" });
+
   return (
     <div className="space-y-8 p-4 bg-background min-h-screen">
       <div className="max-w-7xl mx-auto space-y-6">
@@ -183,7 +271,7 @@ export default function StaffListPage() {
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
             <h1 className="text-3xl font-display font-bold text-foreground">
-              Staff Salaries
+              Staff Salaries - {currentMonth}
             </h1>
             <p className="text-muted-foreground mt-1">
               Manage your team's salary payments
@@ -195,6 +283,12 @@ export default function StaffListPage() {
               className="gradient-gold text-primary-foreground px-6 py-2 rounded-lg flex gap-2"
             >
               <Banknote className="w-4 h-4" /> Pay Salary
+            </Button>
+            <Button
+              onClick={() => navigate("/advance-payment")}
+              className="gradient-gold text-primary-foreground px-6 py-2 rounded-lg flex gap-2"
+            >
+              <Clock className="w-4 h-4" /> Advance Payment
             </Button>
             <Button
               onClick={() => navigate("/add-staff")}
@@ -211,14 +305,14 @@ export default function StaffListPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">
-                  Total Staff
+                  Paid Salaries
                 </p>
                 <p className="text-2xl font-bold text-primary mt-1">
-                  {totalStaff}
+                  Rs {paidSalariesCurrentMonth.toLocaleString()}
                 </p>
               </div>
               <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center">
-                <User className="w-6 h-6 text-primary" />
+                <CheckCircle2 className="w-6 h-6 text-primary" />
               </div>
             </div>
           </div>
@@ -226,14 +320,14 @@ export default function StaffListPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">
-                  Monthly Budget
+                  Unpaid Salaries 
                 </p>
                 <p className="text-2xl font-bold text-primary mt-1">
-                  Rs {totalMonthlySalary.toLocaleString()}
+                  Rs {unpaidSalariesCurrentMonth.toLocaleString()}
                 </p>
               </div>
               <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center">
-                <Wallet className="w-6 h-6 text-primary" />
+                <Clock className="w-6 h-6 text-primary" />
               </div>
             </div>
           </div>
@@ -241,14 +335,14 @@ export default function StaffListPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">
-                  Total Staff Paid
+                  Total Advance Payments
                 </p>
                 <p className="text-2xl font-bold text-primary mt-1">
-                  {totalStaffPaid}
+                  Rs {totalAdvancePayments.toLocaleString()}
                 </p>
               </div>
               <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center">
-                <Users className="w-6 h-6 text-primary" />
+                <TrendingDown className="w-6 h-6 text-primary" />
               </div>
             </div>
           </div>
@@ -271,7 +365,10 @@ export default function StaffListPage() {
                     Monthly Salary
                   </TableHead>
                   <TableHead className="font-semibold">
-                    Balance Status
+                    Monthly Status
+                  </TableHead>
+                  <TableHead className="font-semibold">
+                    Advance
                   </TableHead>
                   <TableHead className="text-right font-semibold">
                     Actions
@@ -299,28 +396,37 @@ export default function StaffListPage() {
                     </TableCell>
                     <TableCell>
                       {(() => {
+                        const thisMonthlySalaryPayment = currentMonthPayments.find(
+                          (payment) => payment.staffId === s.id && payment.paymentType === "full"
+                        );
+                        const isPaid = !!thisMonthlySalaryPayment;
+                        
+                        return isPaid ? (
+                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">
+                            Paid
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">
+                            Unpaid
+                          </span>
+                        );
+                      })()}
+                    </TableCell>
+                    <TableCell>
+                      {(() => {
                         const outstandingAdvance = getOutstandingAdvanceAmount(s.id);
-                        const latestEarlySalaryMonth = getLatestEarlySalaryMonthLabel(s.id);
-
+                        
                         if (outstandingAdvance > 0) {
                           return (
-                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700">
-                              Advance Taken: Rs {outstandingAdvance.toLocaleString()}
-                            </span>
-                          );
-                        }
-
-                        if (latestEarlySalaryMonth) {
-                          return (
-                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">
-                              {latestEarlySalaryMonth} Salary Done
+                            <span className="font-semibold text-red-700">
+                              Rs {outstandingAdvance.toLocaleString()}
                             </span>
                           );
                         }
 
                         return (
-                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">
-                            No Advance
+                          <span className="text-muted-foreground">
+                            N/A
                           </span>
                         );
                       })()}
@@ -419,48 +525,44 @@ export default function StaffListPage() {
                       className="p-4 rounded-lg border border-amber-200 bg-white hover:bg-amber-50 transition-colors"
                     >
                       <div className="flex items-start justify-between gap-3">
-                        <div className="flex items-start gap-3 flex-1 min-w-0">
-                          <div className="flex-shrink-0 mt-0.5">
-                            {payment.paymentType === "advance" ? (
-                              <Clock className="w-5 h-5 text-blue-600" />
-                            ) : (
-                              <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                            )}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="font-semibold text-sm text-foreground">
-                              {payment.staffName}
-                            </p>
-                            <p className="text-xs text-foreground/70 mt-0.5">
-                              {payment.paymentType === "advance"
-                                ? "Advance Payment"
-                                : "Salary Payment"}
-                              {` • ${getReferenceLabel(payment)}`}
-                            </p>
-                            <p className="text-xs text-muted-foreground mt-0.5">
-                              {paymentDate.toLocaleString("en-US", {
-                                month: "short",
-                                day: "numeric",
-                                year: "numeric",
-                                hour: "numeric",
-                                minute: "2-digit",
-                              })}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="text-right flex-shrink-0">
-                          <p className="font-bold text-sm text-amber-700">
-                            Rs {payment.amount.toLocaleString()}
-                          </p>
-                          <p className="text-[11px] text-muted-foreground mt-1">
-                            {outstandingAdvance > 0
-                              ? `Advance Due: Rs ${outstandingAdvance.toLocaleString()}`
-                              : latestEarlySalaryMonth
-                                ? `${latestEarlySalaryMonth} salary done`
-                                : "No advance due"}
-                          </p>
-                        </div>
-                      </div>
+  {/* Left Section: Icon and Details */}
+  <div className="flex items-start gap-3 flex-1 min-w-0">
+    <div className="flex-shrink-0 mt-0.5">
+      {payment.paymentType === "advance" ? (
+        <Clock className="w-5 h-5 text-blue-600" />
+      ) : (
+        <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+      )}
+    </div>
+    <div className="flex-1 min-w-0">
+      <p className="font-semibold text-sm text-foreground">
+        {payment.staffName}
+      </p>
+      <p className="text-xs text-foreground/70 mt-0.5">
+        {payment.paymentType === "advance"
+          ? "Advance Payment"
+          : "Salary Payment"}
+        {` • ${getReferenceLabel(payment)}`}
+      </p>
+      <p className="text-xs text-muted-foreground mt-0.5">
+        {paymentDate.toLocaleString("en-US", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        })}
+      </p>
+    </div>
+  </div>
+
+  {/* Right Section: Amount (Now Centered Vertically) */}
+  <div className="text-right flex-shrink-0 self-center">
+    <p className="font-bold text-sm text-amber-700">
+      Rs {payment.amount.toLocaleString()}
+    </p>
+  </div>
+</div>
                     </div>
                   );
                 })}
@@ -501,6 +603,7 @@ export default function StaffListPage() {
                 <Input
                   type="number"
                   value={editingStaff?.monthlySalary || ""}
+                  onWheel={(e) => (e.currentTarget as HTMLInputElement).blur()}
                   onChange={(e) =>
                     setEditingStaff({
                       ...editingStaff!,

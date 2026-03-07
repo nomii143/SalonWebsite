@@ -13,6 +13,7 @@ import Expenses from "./pages/Expenses";
 import ManualSales from "./pages/Sales";
 import StaffSalaries from "./pages/StaffSalaries";
 import PaySalary from "./pages/PaySalary";
+import AdvancePayment from "./pages/AdvancePayment";
 import AddStaff from "./pages/AddStaff";
 import Reports from "./pages/Reports";
 import PayrollReport from "./pages/PayrollReport";
@@ -39,6 +40,7 @@ const App = () => (
               <Route path="/vendors" element={<VendorPayments />} />
               <Route path="/staffsalaries" element={<StaffSalaries />} />
               <Route path="/pay-salary" element={<PaySalary />} />
+              <Route path="/advance-payment" element={<AdvancePayment />} />
               <Route path="/add-staff" element={<AddStaff />} />
               <Route path="/reports" element={<Reports />} />
               <Route path="/payroll-report" element={<PayrollReport />} />

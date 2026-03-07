@@ -12,23 +12,27 @@ export default function AddStaffPage() {
   const { addUser: addStaff } = useData();
   const [form, setForm] = useState({ fullName: "", monthlySalary: "", joinDate: "" });
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!form.fullName || !form.monthlySalary) return toast.error("Missing fields");
     
     const salary = Number(form.monthlySalary);
     if (salary <= 0) return toast.error("Monthly salary must be greater than zero");
     
-    addStaff({ 
-      fullName: form.fullName, 
-      monthlySalary: salary, 
-      joinDate: form.joinDate,
-      email: "",
-      phone: "",
-      role: "Staff",
-      pictureUrl: ""
-    });
-    toast.success("Staff member added!");
-    navigate("/staffsalaries");
+    try {
+      await addStaff({ 
+        fullName: form.fullName, 
+        monthlySalary: salary, 
+        joinDate: form.joinDate,
+        email: "",
+        phone: "",
+        role: "Staff",
+        pictureUrl: ""
+      });
+      toast.success("Staff member added!");
+      navigate("/staffsalaries");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to save staff in SQLite DB");
+    }
   };
 
   return (
@@ -52,7 +56,12 @@ export default function AddStaffPage() {
           </div>
           <div className="space-y-2">
             <Label>Joining Date</Label>
-            <Input type="date" onChange={(e) => setForm({...form, joinDate: e.target.value})} />
+            <Input
+              type="date"
+              onFocus={(e) => (e.currentTarget as HTMLInputElement & { showPicker?: () => void }).showPicker?.()}
+              onClick={(e) => (e.currentTarget as HTMLInputElement & { showPicker?: () => void }).showPicker?.()}
+              onChange={(e) => setForm({...form, joinDate: e.target.value})}
+            />
           </div>
           <Button onClick={handleSave} className="w-full gradient-gold py-6 text-lg font-bold">Confirm & Save</Button>
         </div>

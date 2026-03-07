@@ -26,16 +26,41 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 
 export default function Expenses() {
   const { expenses, users, addExpense, addUser, updateExpense, deleteExpense } = useData();
+  const isElectron = typeof window !== "undefined" && Boolean(window.electronAPI);
+  const defaultCategories = ["Food", "Taxi", "Maintenance", "Utilities", "Other"];
 
   // --- 1. CATEGORIES LOGIC (PERSISTENT) ---
-  const [categories, setCategories] = useState<string[]>(() => {
-    const saved = typeof window !== "undefined" ? localStorage.getItem("expense-categories") : null;
-    return saved ? JSON.parse(saved) : ["Food", "Taxi", "Maintenance", "Utilities", "Other"];
-  });
+  const [categories, setCategories] = useState<string[]>(defaultCategories);
 
   useEffect(() => {
-    localStorage.setItem("expense-categories", JSON.stringify(categories));
-  }, [categories]);
+    if (!isElectron) return;
+    const loadCategories = async () => {
+      const setting = await window.electronAPI.getSetting("expense-categories");
+      if (setting?.value) {
+        try {
+          const parsed = JSON.parse(setting.value);
+          if (Array.isArray(parsed) && parsed.every((v) => typeof v === "string")) {
+            setCategories(parsed);
+            return;
+          }
+        } catch {
+          // Ignore malformed value and fallback to defaults.
+        }
+      }
+      await window.electronAPI.setSetting("expense-categories", JSON.stringify(defaultCategories));
+    };
+
+    loadCategories().catch((error) => {
+      console.error("Failed to load expense categories from SQLite", error);
+    });
+  }, [isElectron]);
+
+  useEffect(() => {
+    if (!isElectron) return;
+    window.electronAPI
+      .setSetting("expense-categories", JSON.stringify(categories))
+      .catch((error) => console.error("Failed to save expense categories to SQLite", error));
+  }, [categories, isElectron]);
 
   const [newCategoryName, setNewCategoryName] = useState("");
   const [isAddingCategory, setIsAddingCategory] = useState(false);

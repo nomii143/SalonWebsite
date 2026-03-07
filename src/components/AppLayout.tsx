@@ -9,11 +9,30 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const savedTheme = window.localStorage.getItem("theme");
-    const isDark = savedTheme ? savedTheme === "dark" : false;
-    const root = document.documentElement;
-    if (!savedTheme) window.localStorage.setItem("theme", "light");
-    root.classList.toggle("light", !isDark);
+
+    const applyTheme = async () => {
+      const root = document.documentElement;
+      const isElectron = Boolean(window.electronAPI);
+
+      if (!isElectron) {
+        root.classList.add("light");
+        return;
+      }
+
+      const setting = await window.electronAPI.getSetting("theme");
+      const savedTheme = setting?.value === "dark" ? "dark" : "light";
+
+      if (!setting) {
+        await window.electronAPI.setSetting("theme", "light");
+      }
+
+      root.classList.toggle("light", savedTheme !== "dark");
+    };
+
+    applyTheme().catch((error) => {
+      console.error("Failed to load theme from SQLite", error);
+      document.documentElement.classList.add("light");
+    });
   }, []);
 
   return (

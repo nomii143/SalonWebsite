@@ -27,16 +27,41 @@ export default function VendorPayments() {
   // Assuming your context has these methods. If not, you might need to map them 
   // to a 'vendor_payments' table in your database via electronAPI.
   const { expenses, users, addExpense, addUser, updateExpense, deleteExpense } = useData();
+  const isElectron = typeof window !== "undefined" && Boolean(window.electronAPI);
+  const defaultPaymentTypes = ["Inventory", "Raw Material", "Utility Bill", "Rent", "Equipment"];
 
   // --- 1. PAYMENT TYPES LOGIC (e.g., Raw Materials, Rent, Inventory) ---
-  const [paymentTypes, setPaymentTypes] = useState<string[]>(() => {
-    const saved = typeof window !== "undefined" ? localStorage.getItem("vendor-payment-types") : null;
-    return saved ? JSON.parse(saved) : ["Inventory", "Raw Material", "Utility Bill", "Rent", "Equipment"];
-  });
+  const [paymentTypes, setPaymentTypes] = useState<string[]>(defaultPaymentTypes);
 
   useEffect(() => {
-    localStorage.setItem("vendor-payment-types", JSON.stringify(paymentTypes));
-  }, [paymentTypes]);
+    if (!isElectron) return;
+    const loadTypes = async () => {
+      const setting = await window.electronAPI.getSetting("vendor-payment-types");
+      if (setting?.value) {
+        try {
+          const parsed = JSON.parse(setting.value);
+          if (Array.isArray(parsed) && parsed.every((v) => typeof v === "string")) {
+            setPaymentTypes(parsed);
+            return;
+          }
+        } catch {
+          // Ignore malformed value and fallback to defaults.
+        }
+      }
+      await window.electronAPI.setSetting("vendor-payment-types", JSON.stringify(defaultPaymentTypes));
+    };
+
+    loadTypes().catch((error) => {
+      console.error("Failed to load vendor payment types from SQLite", error);
+    });
+  }, [isElectron]);
+
+  useEffect(() => {
+    if (!isElectron) return;
+    window.electronAPI
+      .setSetting("vendor-payment-types", JSON.stringify(paymentTypes))
+      .catch((error) => console.error("Failed to save vendor payment types to SQLite", error));
+  }, [paymentTypes, isElectron]);
 
   const [newTypeName, setNewTypeName] = useState("");
   const [isAddingType, setIsAddingType] = useState(false);

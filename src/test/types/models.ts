@@ -64,4 +64,10 @@ export interface SalaryPayment {
   salaryForMonth?: string;
   numberOfMonths?: number;
   notes?: string;
+  status?: "Pending" | "Deducted" | "Completed";
+  amountPaid?: number;
+  advanceDeducted?: number;
+  totalSalaryGiven?: number;
+  month?: number;
+  year?: number;
 }

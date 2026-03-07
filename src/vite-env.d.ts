@@ -71,6 +71,12 @@ interface ElectronDashboardSummary {
 	totalRevenue: number;
 	totalExpenses: number;
 	profitOrLoss: number;
+	monthlySales?: number;
+	monthlyExpenses?: number;
+	monthlyVendorPayments?: number;
+	monthlySalaryExpenses?: number;
+	totalMonthlyExpenses?: number;
+	totalItems?: number;
 }
 
 interface Window {
@@ -225,6 +231,8 @@ interface Window {
 		>;
 		deleteUser: (id: number) => Promise<{ deleted: boolean }>;
 		getDashboardSummary: () => Promise<ElectronDashboardSummary>;
+		getSetting: (key: string) => Promise<{ key: string; value: string } | null>;
+		setSetting: (key: string, value: string) => Promise<{ key: string; value: string }>;
 	};
 	saloonAPI: {
 		fetchAllItems: () => Promise<
